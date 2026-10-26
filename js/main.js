@@ -200,7 +200,7 @@
     setText('hud-speed', race.isTransition(leg.kind) ? '—' : TRI.fmtPace(leg.kind, p.speed).replace(/ .*/, ''));
     $('hud-speed').nextElementSibling.textContent = race.isTransition(leg.kind) ? '' : TRI.fmtPace(leg.kind, p.speed).replace(/^[^ ]+ /, '');
     $('hud-energy').style.width = Math.max(0, p.gly / p.tri.glyMax * 100) + '%';
-    $('hud-energy').parentElement.nextElementSibling.textContent = `Гликоген · гелей ${p.gelsLeft}`;
+    $('hud-energy').parentElement.nextElementSibling.textContent = `Гликоген · 🍌 ${p.gelsLeft}`;
     const pace = TRI.PACES[p.pace];
     setText('hud-tactic', `${pace.icon} ${pace.name}${p.bonk ? ' · 🧱 «СТЕНА»!' : ''}`);
     $('hud-tactic').classList.toggle('sprint', false);

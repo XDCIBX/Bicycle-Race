@@ -351,3 +351,16 @@ table.standings .num { text-align: right; }
   .hud-info { width: 150px; }
   .hud-bottom { gap: 10px; }
 }
+
+/* Телефон в портретной ориентации: нижняя панель в две строки и не заходит под кнопку «Спурт»/«Гель». */
+@media (max-width: 860px) and (orientation: portrait), (max-width: 480px) {
+  .hud-bottom {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "info info" "speed energy";
+    align-items: end; gap: 6px 12px;
+    left: calc(14px + var(--sal)); right: calc(112px + var(--sar)); bottom: calc(18px + var(--sab));
+  }
+  .hud-info { grid-area: info; width: 100%; }
+  .hud-speed { grid-area: speed; font-size: 40px; }
+  .hud-energy { grid-area: energy; width: auto; min-width: 0; padding-bottom: 4px; }
+  .hud-energy small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
