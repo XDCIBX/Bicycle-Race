@@ -34,29 +34,44 @@ const { BIKES } = loadBrowserGlobal(path.join(root, 'js', 'data.js'), 'GameData'
 const credits = fs.existsSync(creditsFile) ? loadBrowserGlobal(creditsFile, 'LOCAL_BIKE_PHOTOS') || {} : {};
 
 const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
-const BAD_WORDS = /(logo|map|diagram|drawing|icon|sign|poster|advert|catalog|patent|svg|schematic|crash|accident)/i;
+// Те же правила, что и в js/photos.js: в названии обязаны быть бренд и модель,
+// снимки гонок, людей, выставок, логотипов и деталей отбрасываются.
+const REJECT = /(logo|map|diagram|drawing|icon|sign|poster|advert|catalog|patent|svg|schematic|crash|accident|tour de france|giro|vuelta|stage|étape|etapa|team|équipe|podium|peloton|race|racing|rennen|course|criterium|finish|winner|champion|portrait|rider|cyclist|athlete|shop|store|showroom|museum|expo|eurobike|fair|messe|detail|close|headtube|head tube|badge|decal|crank|derailleur|saddle|groupset|drivetrain|cockpit|handlebar|interior|parade|crowd)/i;
+const PREFER = /(bike|bicycle|fahrrad|vélo|velo|bicicleta|side|profile|studio)/i;
+
+function matches(title, bike) {
+  const t = title.replace(/^File:/, '').replace(/_+/g, ' ');
+  const m = bike.photoMatch;
+  if (!new RegExp(m.brand, 'i').test(t)) return false;
+  if (m.model && !new RegExp(m.model, 'i').test(t)) return false;
+  return !REJECT.test(t);
+}
 
 function pickBest(pages, bike) {
-  const tokens = bike.name.toLowerCase().replace(/[^a-z0-9а-яё ]/gi, ' ').split(/\s+/).filter((t) => t.length > 2);
   let best = null, bestScore = -Infinity;
   for (const pg of pages) {
     const ii = pg.imageinfo && pg.imageinfo[0];
-    if (!ii || !/image\/(jpeg|png|webp)/.test(ii.mime || '') || BAD_WORDS.test(pg.title)) continue;
-    const title = pg.title.toLowerCase();
-    let score = -(pg.index || 0) * 0.15;
-    for (const t of tokens) if (title.includes(t)) score += 2;
+    if (!ii || !/image\/(jpeg|png|webp)/.test(ii.mime || '') || !matches(pg.title, bike)) continue;
     const ratio = ii.width / ii.height;
-    if (ratio > 1.15 && ratio < 2.2) score += 2; else if (ratio < 0.9) score -= 2;
-    if (ii.width < 500) score -= 3;
+    if (ratio < 1.15 || ratio > 2.3 || ii.width < 600) continue;
+    let score = -(pg.index || 0) * 0.1;
+    if (PREFER.test(pg.title)) score += 2;
+    if (ratio > 1.3 && ratio < 1.8) score += 1.5;
     if (score > bestScore) { bestScore = score; best = { pg, ii }; }
   }
   return best;
 }
 
+function queries(bike) {
+  const brand = bike.brand.replace('é', 'e');
+  const model = bike.model.split(' ').find((w) => w.length > 1 && !/^(s-works|c|line|carbon|advanced|pro|rc|disc|world|cup|explore)$/i.test(w)) || bike.model;
+  return [`intitle:"${brand}" intitle:"${model}"`, `${bike.brand} ${bike.model}`, ...bike.photoQueries.slice(0, 2)];
+}
+
 async function search(bike) {
-  for (const q of bike.photoQueries) {
+  for (const q of queries(bike)) {
     const params = new URLSearchParams({
-      action: 'query', format: 'json', generator: 'search', gsrnamespace: '6', gsrlimit: '12',
+      action: 'query', format: 'json', generator: 'search', gsrnamespace: '6', gsrlimit: '30',
       gsrsearch: `${q} filetype:bitmap`, prop: 'imageinfo', iiprop: 'url|size|mime|extmetadata', iiurlwidth: '800',
     });
     const res = await fetch(`${API}?${params}`, { headers: { 'User-Agent': UA } });

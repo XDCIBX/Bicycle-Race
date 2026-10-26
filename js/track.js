@@ -149,6 +149,42 @@
     const decals = [];
     const clearOf = (x, y, margin) => nearestIndex(x, y).dist > hw + margin;
 
+    // Озёра и море: сначала ставим водоёмы, чтобы декорации их обходили.
+    const lakes = [];
+    const inLake = (x, y, pad) => lakes.some((l) => {
+      const dx = x - l.x, dy = y - l.y;
+      const c = Math.cos(-l.rot), sn = Math.sin(-l.rot);
+      const u = (dx * c - dy * sn) / (l.rx + (pad || 0)), v = (dx * sn + dy * c) / (l.ry + (pad || 0));
+      return u * u + v * v < 1;
+    });
+    const makeLake = (x, y, rx, ry, rot, kind) => {
+      const pts = [];
+      for (let k = 0; k < 28; k++) {
+        const a = k / 28 * Math.PI * 2;
+        const wob = 1 + (rnd() - 0.5) * 0.18;
+        const lx = Math.cos(a) * rx * wob, ly = Math.sin(a) * ry * wob;
+        pts.push([x + lx * Math.cos(rot) - ly * Math.sin(rot), y + lx * Math.sin(rot) + ly * Math.cos(rot)]);
+      }
+      return { x, y, rx, ry, rot, pts, kind, z: samples[nearestIndex(x, y).idx].z - 0.3 };
+    };
+    const lakeOk = (l) => l.pts.every(([x, y]) => clearOf(x, y, 4)) && clearOf(l.x, l.y, Math.min(l.rx, l.ry));
+    if (env.sea) {
+      // Море вдоль одной стороны трассы.
+      const b0 = samples.reduce((m, p) => (p.y < m.y ? p : m), samples[0]);
+      for (let tries = 0; tries < 6; tries++) {
+        const l = makeLake(b0.x, b0.y - 90 - tries * 20, 260, 70, 0, 'sea');
+        if (lakeOk(l)) { lakes.push(l); break; }
+      }
+    }
+    for (let k = 0, tries = 0; k < (env.lakes || 0) && tries < 60; tries++) {
+      const p = samples[Math.floor(rnd() * N)];
+      const side = rnd() < 0.5 ? -1 : 1;
+      const rx = 12 + rnd() * 16, ry = rx * (0.5 + rnd() * 0.4);
+      const off = hw + rx + 10 + rnd() * 40;
+      const l = makeLake(p.x + p.nx * off * side, p.y + p.ny * off * side, rx, ry, rnd() * Math.PI, 'lake');
+      if (lakeOk(l) && !inLake(l.x, l.y, Math.max(rx, ry) + 6)) { lakes.push(l); k++; }
+    }
+
     // Пятна и травинки на земле.
     const decalCount = Math.round(L * 3);
     for (let i = 0; i < decalCount; i++) {
@@ -157,7 +193,7 @@
       const off = hw + 0.5 + Math.pow(rnd(), 1.4) * 70;
       const x = p.x + p.nx * off * side + (rnd() - 0.5) * 6;
       const y = p.y + p.ny * off * side + (rnd() - 0.5) * 6;
-      if (!clearOf(x, y, 0.3)) continue;
+      if (!clearOf(x, y, 0.3) || inLake(x, y, 1)) continue;
       decals.push({ x, y, z: p.z, r: 0.12 + rnd() * rnd() * 0.9, c: env.decal[Math.floor(rnd() * env.decal.length)], k: rnd() });
     }
 
@@ -172,11 +208,12 @@
         const off = hw + (big ? 12 : 4) + Math.pow(rnd(), 1.2) * (big ? 30 : 55);
         const x = p.x + p.nx * off * side, y = p.y + p.ny * off * side;
         const margin = big ? 11 : 3;
-        if (!clearOf(x, y, margin)) continue;
+        if (!clearOf(x, y, margin) || inLake(x, y, big ? 10 : 2)) continue;
         const o = { type, x, y, z: p.z, ang: p.ang, seed: rnd(), r: 1 };
         if (type === 'building') { o.w = 9 + rnd() * 8; o.d = 9 + rnd() * 8; o.h = 6 + rnd() * 10; o.r = 8; }
         if (type === 'house') { o.w = 7 + rnd() * 3; o.d = 6 + rnd() * 3; o.h = 4 + rnd() * 1.5; o.r = 6; }
         if (type === 'dune') { o.w = 9 + rnd() * 9; o.r = 8; }
+        if (type === 'car') { o.c = ['#c0392b', '#2c3e50', '#ecf0f1', '#2980b9', '#f1c40f', '#7f8c8d'][Math.floor(rnd() * 6)]; }
         objects.push(o);
       }
     }
@@ -188,8 +225,8 @@
         objects.push({ type: 'lamp', x: p.x + p.nx * (hw + 1.5) * side, y: p.y + p.ny * (hw + 1.5) * side, z: p.z, seed: rnd() });
       }
     }
-    // Зрители у старта и стартовая арка.
-    for (let i = -14; i <= 14; i++) {
+    // Зрители у старта и стартовая арка (на воде зрителей нет).
+    for (let i = -14; i <= 14 && !env.water; i++) {
       const p = samples[(i * 2 + N) % N];
       for (const side of [-1, 1]) {
         for (let row = 0; row < 2; row++) {
@@ -201,10 +238,74 @@
     }
     objects.push({ type: 'gantry', x: samples[0].x, y: samples[0].y, z: samples[0].z, idx: 0 });
 
+    const at = (s0, lat) => {
+      const p = samples[Math.floor((((s0 % L) + L) % L) / step) % N];
+      return { p, x: p.x + p.nx * lat, y: p.y + p.ny * lat };
+    };
+    const segObj = (type, s0, lat, len, extra) => {
+      const a = at(s0, lat), b = at(s0 + len, lat);
+      objects.push(Object.assign({ type, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: a.p.z, x1: a.x, y1: a.y, x2: b.x, y2: b.y, z2: b.p.z }, extra));
+    };
+    if (env.water) {
+      // Плавательная трасса: линии буйков и большие поворотные буи.
+      for (let s0 = 0; s0 < L; s0 += 14) {
+        for (const side of [-1, 1]) { const a = at(s0, side * (hw + 1)); objects.push({ type: 'buoy', x: a.x, y: a.y, z: 0, big: false, seed: rnd() }); }
+      }
+      for (let i = 0; i < N; i += 3) {
+        const p = samples[i];
+        if (p.curvMax > 0.02 && p.curv === p.curvMax) {
+          const a = at(p.s, -p.turn * (hw + 3));
+          objects.push({ type: 'buoy', x: a.x, y: a.y, z: 0, big: true, seed: rnd() });
+        }
+      }
+      const pon = at(-14, 0);
+      objects.push({ type: 'pontoon', x: pon.x, y: pon.y, z: 0, ang: pon.p.ang });
+      lakes.forEach((l) => { if (l.kind === 'sea') objects.push({ type: 'boat', x: l.x, y: l.y, z: 0, seed: rnd() }); });
+    } else {
+      // Ограждения и рекламные щиты у старта, шатры команд, трибуна.
+      for (let s0 = -60; s0 < 40; s0 += 4) {
+        for (const side of [-1, 1]) segObj('barrier', s0, side * (hw + 1.3), 3.8, {});
+      }
+      const brands = ['VELO RUSH', 'ENERGY', 'SPORT', 'CARBON', 'AERO', 'PRO TEAM', 'GO!', 'CHAIN'];
+      const cols = ['#e63946', '#1d3557', '#2a9d8f', '#f4a261', '#6a4c93', '#ffb703', '#118ab2', '#ef476f'];
+      for (let s0 = 44, k = 0; s0 < 140; s0 += 9, k++) {
+        for (const side of [-1, 1]) segObj('banner', s0, side * (hw + 1.0), 8, { text: brands[(k + (side > 0 ? 3 : 0)) % brands.length], c: cols[(k * 3 + (side > 0 ? 1 : 0)) % cols.length] });
+      }
+      for (let k = 0; k < 4; k++) {
+        const a = at(-34 + k * 10, (k % 2 ? 1 : -1) * (hw + 9));
+        objects.push({ type: 'tent', x: a.x, y: a.y, z: a.p.z, ang: a.p.ang, c: cols[k * 2 % cols.length], seed: rnd() });
+      }
+      segObj('grandstand', -22, hw + 5.5, 26, { seed: rnd() });
+      // Километровые столбики.
+      for (let s0 = 200, km = 1; s0 < L - 50; s0 += 200, km++) {
+        const a = at(s0, -(hw + 1.8));
+        objects.push({ type: 'kmsign', x: a.x, y: a.y, z: a.p.z, ang: a.p.ang, n: km });
+      }
+      // Отбойники/тюки на внешней стороне крутых поворотов.
+      for (let i = 0; i < N; i += 2) {
+        const p = samples[i];
+        if (p.curvMax > 0.03 && def.env !== 'city' && def.env !== 'park') {
+          const a = at(p.s, -p.turn * (hw + 1.6));
+          objects.push({ type: def.env === 'forest' || def.env === 'countryside' ? 'haybale' : 'tyres', x: a.x, y: a.y, z: p.z, seed: rnd() });
+        }
+      }
+      // Городские тротуары, пешеходные переходы, припаркованные машины.
+      if (def.env === 'city') {
+        for (let i = 0; i < N; i += 60) samples[(i + 25) % N].crosswalk = true;
+        for (let s0 = 160; s0 < L - 40; s0 += 18 + rnd() * 30) {
+          if (samples[Math.floor(s0 / step) % N].curvMax > 0.012) continue;
+          const side = rnd() < 0.5 ? -1 : 1;
+          const a = at(s0, side * (hw + 5.2));
+          objects.push({ type: 'car', x: a.x, y: a.y, z: a.p.z, ang: a.p.ang, c: ['#c0392b', '#2c3e50', '#ecf0f1', '#2980b9', '#f1c40f', '#7f8c8d'][Math.floor(rnd() * 6)], seed: rnd() });
+        }
+      }
+      lakes.forEach((l) => { if (rnd() < 0.6) objects.push({ type: 'boat', x: l.x + (rnd() - 0.5) * l.rx * 0.6, y: l.y + (rnd() - 0.5) * l.ry * 0.6, z: l.z, seed: rnd() }); });
+    }
+
     // Крапинки на полотне (гравий, грунт, песок…).
     samples.forEach((p) => {
       p.specks = [];
-      const cnt = { asphalt: 1, cobble: 0, gravel: 5, dirt: 4, sand: 4, snow: 3 }[p.surface] || 0;
+      const cnt = { asphalt: 1, cobble: 0, gravel: 5, dirt: 4, sand: 4, snow: 3, path: 2 }[p.surface] || 0;
       for (let k = 0; k < cnt; k++) {
         const lat = (rnd() * 2 - 1) * hw * 0.95;
         const lon = (rnd() - 0.5) * step;
@@ -217,11 +318,19 @@
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     samples.forEach((p) => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
 
+    const zCache = new Map();
     let climb = 0;
     for (let i = 0; i < N; i++) climb += Math.max(0, samples[(i + 1) % N].z - samples[i].z);
 
     return {
-      def, env, samples, N, L, step, hw, objects, decals, locate, nearestIndex,
+      def, env, samples, N, L, step, hw, objects, decals, lakes, locate, nearestIndex,
+      // Высота земли в точке (по ближайшему участку трассы), с кэшем по клеткам.
+      groundZ(x, y) {
+        const k = `${Math.round(x / 12)},${Math.round(y / 12)}`;
+        let z = zCache.get(k);
+        if (z === undefined) { z = samples[nearestIndex(x, y).idx].z; zCache.set(k, z); }
+        return z;
+      },
       bounds: { minX, minY, maxX, maxY }, climb,
       sampleAt(s) { return samples[Math.floor((((s % L) + L) % L) / step) % N]; },
     };

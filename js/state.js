@@ -16,12 +16,23 @@
     return r;
   }
 
+  function emptyTriSkills() {
+    const r = {};
+    (D.TRI_SKILLS || []).forEach((k) => { r[k.id] = 0; });
+    return r;
+  }
+
   function newGame() {
     const s = {
       money: D.START_MONEY,
       active: 'rockrider',
       rider: { name: 'Вы', skills: emptySkills() },
       tactic: 'steady',
+      xp: 0,
+      perks: [],
+      trophies: { medals: [], cups: [] },
+      champ: null,
+      tri: { skills: emptyTriSkills(), pacing: 'steady', best: {}, bestTime: {} },
       owned: {},
       wheels: [],
       best: {},
@@ -55,6 +66,13 @@
         s.rider = Object.assign({ name: 'Вы' }, s.rider);
         s.rider.skills = Object.assign(emptySkills(), s.rider.skills);
         if (!D.TACTICS.some((t) => t.id === s.tactic)) s.tactic = 'steady';
+        // Миграция на систему уровней: опыт за уже проведённые гонки.
+        const raw0 = JSON.parse(raw);
+        if (raw0.xp == null) s.xp = (s.races || 0) * 90;
+        s.perks = Array.isArray(s.perks) ? s.perks : [];
+        s.trophies = Object.assign({ medals: [], cups: [] }, s.trophies);
+        s.tri = Object.assign({ pacing: 'steady', best: {}, bestTime: {} }, s.tri);
+        s.tri.skills = Object.assign(emptyTriSkills(), s.tri.skills);
         return s;
       }
     } catch (e) { /* хранилище недоступно — начинаем заново */ }
@@ -68,7 +86,7 @@
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
   // Итоговые характеристики = база велосипеда + улучшения + колёса + тренированность гонщика.
-  function effectiveStats(bikeId, upgrades, wheelId, riderSkills) {
+  function effectiveStats(bikeId, upgrades, wheelId, riderSkills, perks) {
     const bike = D.bikeById(bikeId);
     const out = Object.assign({}, bike.stats);
     D.UPGRADES.forEach((up) => {
@@ -84,21 +102,31 @@
         Object.entries(sk.mods).forEach(([k, v]) => { out[k] = clamp(out[k] + v * lvl, 1, 120); });
       });
     }
+    if (perks && perks.length && window.Progression) {
+      Object.entries(window.Progression.perkEffects(perks).mods).forEach(([k, v]) => { out[k] = clamp(out[k] + v, 1, 125); });
+    }
     return out;
   }
 
   // Параметры гонщика, которые не сводятся к характеристикам велосипеда.
-  function riderProfile(skills) {
+  function riderProfile(skills, perks) {
     const sk = skills || {};
     const lv = (id) => sk[id] || 0;
     const total = D.RIDER_SKILLS.reduce((a, k) => a + lv(k.id), 0);
+    const pe = (perks && perks.length && window.Progression) ? window.Progression.perkEffects(perks).prof : {};
+    const p = (k) => pe[k] || 0;
     return {
-      skill: 0.9 + 0.0015 * total,
+      skill: 0.9 + 0.0015 * total + p('skill'),
       energyMax: 100 + 12 * lv('endurance'),
-      regen: 5 + 0.7 * lv('endurance'),
-      sprintBoost: 1.08 + 0.008 * lv('sprint'),
-      draft: 0.03 + 0.004 * lv('tactics'),
-      corner: 0.93 + 0.004 * lv('technique') + 0.002 * lv('tactics'),
+      regen: (5 + 0.7 * lv('endurance')) * (1 + p('regenMult')),
+      sprintBoost: 1.08 + 0.008 * lv('sprint') + p('sprintBoost'),
+      sprintCost: 1 + p('sprintCost'),
+      finalKick: 1 + p('finalKick'),
+      descend: 1 + p('descend'),
+      slipGrip: 1 + p('slipGrip'),
+      secondWind: p('secondWind') > 0,
+      draft: 0.03 + 0.004 * lv('tactics') + p('draft'),
+      corner: 0.93 + 0.004 * lv('technique') + 0.002 * lv('tactics') + p('corner'),
       tactics: lv('tactics'),
     };
   }

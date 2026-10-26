@@ -22,6 +22,8 @@
     sand: { name: 'Песок', color: '#e3cf95', rough: 0.35, grip: 0.58, dust: '#efdcab' },
     snow: { name: 'Снег и лёд', color: '#e9f1f8', rough: 0.25, grip: 0.42, dust: '#ffffff' },
     grass: { name: 'Обочина', color: '#5c8f3c', rough: 0.6, grip: 0.62, dust: null },
+    water: { name: 'Открытая вода', color: '#2f7fb8', rough: 0, grip: 1, dust: null },
+    path: { name: 'Беговая дорожка', color: '#b07a5a', rough: 0.05, grip: 0.95, dust: null },
   };
 
   // Колёса/покрышки. roll — накат (влияет на максимальную скорость) по покрытиям,
@@ -165,7 +167,8 @@
 
   // Только реальные бренды и модели. brand/model — для подписи и декалей на раме,
   // look — внешний вид для реалистичной отрисовки (цвета, обода, борт покрышки).
-  // photoQueries — поисковые запросы для Wikimedia Commons (от точного к общему).
+  // photoQueries — поисковые запросы для Wikimedia Commons; photoMatch — регулярные выражения,
+  // которым ОБЯЗАН соответствовать заголовок файла (бренд и модель), иначе фото не показываем.
   const BIKES = [
     {
       id: 'rockrider', brand: 'Rockrider', model: 'ST 100', maker: 'Decathlon', type: 'mtb', tier: 1, price: 0,
@@ -173,6 +176,7 @@
       stats: { speed: 38, accel: 42, handling: 45, brakes: 45, climb: 35, offroad: 50 },
       sizes: ['mtb'], stockWheel: 'krad',
       desc: 'Самый продаваемый хардтейл Европы от Decathlon. Тяжеловат, зато едет везде понемногу.',
+      photoMatch: { brand: 'rockrider', model: 'st ?1[0-9]0' },
       photoQueries: ['Rockrider ST 100', 'Rockrider bicycle', 'Decathlon Rockrider', 'hardtail mountain bike'],
     },
     {
@@ -181,6 +185,7 @@
       stats: { speed: 30, accel: 80, handling: 86, brakes: 58, climb: 42, offroad: 42 },
       sizes: ['bmx'], stockWheel: 'grifter',
       desc: 'Хромолевый BMX: взрывной старт и мгновенная реакция на руль. Но потолок скорости низкий.',
+      photoMatch: { brand: 'mongoose', model: 'legion|bmx' },
       photoQueries: ['Mongoose Legion BMX', 'Mongoose BMX bicycle', 'BMX bicycle'],
     },
     {
@@ -189,6 +194,7 @@
       stats: { speed: 40, accel: 66, handling: 82, brakes: 55, climb: 45, offroad: 18 },
       sizes: ['folding'], stockWheel: 'marathon16',
       desc: 'Британская складушка на 16" колёсах. Узкие улицы и шпильки критериума — её стихия.',
+      photoMatch: { brand: 'brompton', model: '' },
       photoQueries: ['Brompton bicycle', 'Brompton folding bike', 'folding bicycle 16 inch'],
     },
     {
@@ -197,6 +203,7 @@
       stats: { speed: 55, accel: 56, handling: 60, brakes: 70, climb: 55, offroad: 34 },
       sizes: ['road', 'gravel'], stockWheel: 'gravelking',
       desc: 'Фитнес-гибрид с карбоновой вилкой и дисковыми тормозами. Сбалансирован во всём.',
+      photoMatch: { brand: 'trek', model: '\\bfx ?[0-9]?\\b' },
       photoQueries: ['Trek FX bicycle', 'Trek FX 3', 'Trek hybrid bicycle'],
     },
     {
@@ -205,6 +212,7 @@
       stats: { speed: 46, accel: 56, handling: 63, brakes: 72, climb: 52, offroad: 72 },
       sizes: ['mtb'], stockWheel: 'ikon',
       desc: 'Хардтейл для кросс-кантри: вилка RockShox, гидравлика, уверенность на грунте.',
+      photoMatch: { brand: 'trek', model: 'marlin' },
       photoQueries: ['Trek Marlin', 'Trek Marlin 7', 'Trek mountain bike'],
     },
     {
@@ -213,6 +221,7 @@
       stats: { speed: 32, accel: 40, handling: 50, brakes: 66, climb: 36, offroad: 88 },
       sizes: ['fat'], stockWheel: 'nate',
       desc: 'Прародитель фэтбайков. Четырёхдюймовые покрышки не тонут ни в песке, ни в снегу.',
+      photoMatch: { brand: 'surly', model: 'pugsley' },
       photoQueries: ['Surly Pugsley', 'Surly fat bike', 'fatbike'],
     },
     {
@@ -221,6 +230,7 @@
       stats: { speed: 64, accel: 61, handling: 65, brakes: 76, climb: 65, offroad: 62 },
       sizes: ['gravel', 'road'], stockWheel: 'gone',
       desc: 'Гревел с «кингпин»-подвеской заднего треугольника. Король смешанных трасс.',
+      photoMatch: { brand: 'cannondale', model: 'topstone' },
       photoQueries: ['Cannondale Topstone', 'Cannondale gravel bike', 'gravel bike'],
     },
     {
@@ -229,6 +239,7 @@
       stats: { speed: 63, accel: 65, handling: 70, brakes: 74, climb: 68, offroad: 65 },
       sizes: ['gravel', 'road'], stockWheel: 'riddler',
       desc: 'Баскский карбоновый гревел: лёгкий, юркий, с агрессивной резиной из коробки.',
+      photoMatch: { brand: 'orbea', model: 'terra' },
       photoQueries: ['Orbea Terra', 'Orbea gravel bicycle', 'Orbea bicycle'],
     },
     {
@@ -237,6 +248,7 @@
       stats: { speed: 74, accel: 73, handling: 71, brakes: 70, climb: 84, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Лёгкая карбоновая рама с компактной геометрией. Горы — его конёк.',
+      photoMatch: { brand: 'giant', model: 'tcr' },
       photoQueries: ['Giant TCR Advanced', 'Giant TCR', 'Giant road bicycle'],
     },
     {
@@ -245,6 +257,7 @@
       stats: { speed: 50, accel: 58, handling: 78, brakes: 90, climb: 56, offroad: 97 },
       sizes: ['mtb'], stockWheel: 'minion',
       desc: 'Двухподвес с ходом 150 мм. Корни и камни для него как асфальт, но на шоссе — тягач.',
+      photoMatch: { brand: 'specialized|stumpjumper', model: 'stumpjumper' },
       photoQueries: ['Specialized Stumpjumper', 'Specialized Stumpjumper EVO', 'full suspension mountain bike'],
     },
     {
@@ -253,6 +266,7 @@
       stats: { speed: 60, accel: 72, handling: 80, brakes: 84, climb: 76, offroad: 90 },
       sizes: ['mtb'], stockWheel: 'ikon',
       desc: 'Кросс-кантрийный двухподвес чемпионов мира: амортизатор спрятан в раме, вес под 10 кг.',
+      photoMatch: { brand: 'scott', model: 'spark' },
       photoQueries: ['Scott Spark RC', 'Scott Spark', 'Scott mountain bike'],
     },
     {
@@ -261,6 +275,7 @@
       stats: { speed: 69, accel: 65, handling: 71, brakes: 80, climb: 67, offroad: 74 },
       sizes: ['gravel', 'road'], stockWheel: 'gone',
       desc: 'Гревел с подвеской Future Shock и подвесным подседельным узлом. Комфорт на любой «гребёнке».',
+      photoMatch: { brand: 'specialized|diverge', model: 'diverge' },
       photoQueries: ['Specialized Diverge', 'Specialized gravel bike', 'gravel bicycle'],
     },
     {
@@ -269,6 +284,7 @@
       stats: { speed: 89, accel: 75, handling: 63, brakes: 72, climb: 70, offroad: 10 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Аэродинамика из аэротрубы: на прямых недосягаем, в поворотах требует аккуратности.',
+      photoMatch: { brand: 'canyon', model: 'aeroad' },
       photoQueries: ['Canyon Aeroad', 'Canyon Aeroad CFR', 'Canyon road bike'],
     },
     {
@@ -277,6 +293,7 @@
       stats: { speed: 98, accel: 66, handling: 38, brakes: 62, climb: 60, offroad: 5 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Разделочник для триатлона. Максимальная скорость в игре, но поворачивает как баржа.',
+      photoMatch: { brand: 'cerv[eé]lo', model: '\\bp5\\b' },
       photoQueries: ['Cervelo P5', 'Cervélo P5', 'Cervelo time trial bicycle'],
     },
     {
@@ -285,6 +302,7 @@
       stats: { speed: 93, accel: 79, handling: 69, brakes: 76, climb: 74, offroad: 10 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Старейший велобренд мира в фирменном цвете «челесте». Аэро-болид с «крыльями» на руле.',
+      photoMatch: { brand: 'bianchi', model: 'oltre' },
       photoQueries: ['Bianchi Oltre', 'Bianchi Oltre RC', 'Bianchi road bicycle celeste'],
     },
     {
@@ -293,6 +311,7 @@
       stats: { speed: 87, accel: 87, handling: 80, brakes: 80, climb: 91, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Гоночный болид пелотона: лёгкий, жёсткий и быстрый. Победитель Гранд-туров.',
+      photoMatch: { brand: 'specialized|s-works', model: 'tarmac' },
       photoQueries: ['Specialized Tarmac SL8', 'Specialized Tarmac', 'S-Works Tarmac'],
     },
     {
@@ -301,6 +320,7 @@
       stats: { speed: 89, accel: 88, handling: 84, brakes: 82, climb: 90, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Велосипед Тадея Погачара: победы в Туре де Франс и чемпионате мира.',
+      photoMatch: { brand: 'colnago', model: 'v4' },
       photoQueries: ['Colnago V4Rs', 'Colnago V4', 'Colnago bicycle'],
     },
     {
@@ -309,6 +329,7 @@
       stats: { speed: 91, accel: 85, handling: 87, brakes: 82, climb: 88, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Итальянская легенда с асимметричной рамой. Лучший баланс скорости и управляемости.',
+      photoMatch: { brand: 'pinarello', model: 'dogma' },
       photoQueries: ['Pinarello Dogma F', 'Pinarello Dogma', 'Pinarello bicycle'],
     },
   ];
@@ -418,16 +439,42 @@
     },
   ];
 
+  // Служебные трассы триатлона: плавательная петля между буями и беговая трасса в парке.
+  const EXTRA_TRACKS = [
+    {
+      id: 'swimcourse', name: 'Плавательная петля', env: 'lake', tier: 1, laps: 1, width: 16, offSurface: 'water', prize: 0,
+      points: [[0, 0, 0], [120, -10, 0], [240, 0, 0], [280, 60, 0], [240, 125, 0], [120, 135, 0], [0, 125, 0], [-40, 60, 0]],
+      surfaces: [[0, 1, 'water']],
+    },
+    {
+      id: 'runcourse', name: 'Беговая трасса в парке', env: 'park', tier: 1, laps: 1, width: 7, offSurface: 'grass', prize: 0,
+      points: [[0, 0, 0], [90, -20, 1], [180, 10, 2], [230, 90, 1], [170, 160, 0], [210, 240, 2], [110, 290, 3], [10, 240, 1],
+        [-60, 280, 0], [-130, 200, 1], [-90, 110, 2], [-120, 40, 1]],
+      surfaces: [[0, 1, 'path']],
+    },
+  ];
+
   const ENVIRONMENTS = {
-    meadow: { ground: '#5f9a40', decal: ['#6fae4a', '#527f35', '#e6d15a'], scenery: ['tree', 'tree', 'bush', 'bush', 'rock', 'house'], density: 0.9 },
-    city: { ground: '#6f6a64', decal: ['#625d58', '#7d7770'], scenery: ['building', 'building', 'building', 'lamp', 'tree'], density: 1.3 },
-    countryside: { ground: '#9db04d', decal: ['#c9b95a', '#88a043', '#b7c766'], scenery: ['tree', 'haybale', 'bush', 'house', 'tree'], density: 0.8 },
-    mountain: { ground: '#6d8a4f', decal: ['#7a7d78', '#5b7642', '#8a9a72'], scenery: ['pine', 'pine', 'rock', 'rock', 'pine'], density: 1.1 },
-    forest: { ground: '#3f6b33', decal: ['#2f5527', '#4e7d3c', '#6b5236'], scenery: ['pine', 'tree', 'pine', 'tree', 'bush', 'pine'], density: 1.8 },
+    meadow: { ground: '#5f9a40', decal: ['#6fae4a', '#527f35', '#e6d15a', '#f3f3f3'], scenery: ['tree', 'tree', 'birch', 'bush', 'flowers', 'rock', 'house'], density: 1.0, lakes: 2 },
+    city: { ground: '#6f6a64', decal: ['#625d58', '#7d7770'], scenery: ['building', 'building', 'building', 'lamp', 'tree', 'bench'], density: 1.3 },
+    countryside: { ground: '#9db04d', decal: ['#c9b95a', '#88a043', '#b7c766'], scenery: ['tree', 'haybale', 'bush', 'house', 'birch', 'flowers'], density: 0.9, lakes: 1 },
+    mountain: { ground: '#6d8a4f', decal: ['#7a7d78', '#5b7642', '#8a9a72'], scenery: ['pine', 'pine', 'rock', 'rock', 'pine', 'flowers'], density: 1.2, lakes: 1 },
+    forest: { ground: '#3f6b33', decal: ['#2f5527', '#4e7d3c', '#6b5236'], scenery: ['pine', 'tree', 'pine', 'birch', 'bush', 'pine', 'pine', 'tree', 'log'], density: 1.9, lakes: 1 },
     desert: { ground: '#dcc287', decal: ['#cfb173', '#e8d39c', '#b99a5f'], scenery: ['cactus', 'rock', 'cactus', 'dune'], density: 0.6 },
-    snow: { ground: '#e3edf5', decal: ['#cddbe7', '#f7fbff', '#b9c9d8'], scenery: ['snowpine', 'snowpine', 'rock', 'snowpine'], density: 1.0 },
-    coast: { ground: '#d8c896', decal: ['#c6b27d', '#7fb0c9', '#e7dcb4'], scenery: ['palm', 'palm', 'building', 'rock', 'umbrella'], density: 0.9 },
+    snow: { ground: '#e3edf5', decal: ['#cddbe7', '#f7fbff', '#b9c9d8'], scenery: ['snowpine', 'snowpine', 'rock', 'snowpine', 'snowpine', 'snowpine', 'rock', 'snowpine', 'snowman'], density: 1.1 },
+    lake: { ground: '#2c78ad', decal: ['#4f97c9', '#7cb8df', '#2a6d9e'], scenery: ['boat', 'kayak'], density: 0.12, water: true },
+    park: { ground: '#5a9a42', decal: ['#6db04c', '#4d8636', '#e6d15a', '#f08cb0'], scenery: ['tree', 'tree', 'bush', 'bench', 'flowers', 'birch'], density: 1.2 },
+    coast: { ground: '#d8c896', decal: ['#c6b27d', '#7fb0c9', '#e7dcb4'], scenery: ['palm', 'palm', 'building', 'rock', 'umbrella'], density: 0.9, sea: true },
   };
+
+  // Триатлон: отдельные навыки триатлета (велоэтап использует велосипед и навыки велогонщика).
+  const TRI_SKILLS = [
+    { id: 'swim', name: 'Плавание', icon: '🏊', training: 'Техника и интервалы в бассейне', base: 110, effect: 'Скорость плавания +0.065 м/с за уровень' },
+    { id: 'run', name: 'Бег', icon: '🏃', training: 'Темповые и длинные пробежки', base: 110, effect: 'Скорость бега +0.17 м/с за уровень' },
+    { id: 'transition', name: 'Транзиты', icon: '⏱️', training: 'Отработка T1 и T2: гидрокостюм, шлем, обувь', base: 70, effect: '−9 с в T1 и −6 с в T2 за уровень' },
+    { id: 'stamina', name: 'Выносливость', icon: '🔋', training: '«Кирпичи»: длинный вело + бег', base: 130, effect: 'Гликоген +10%, усталость к финишу меньше' },
+    { id: 'nutrition', name: 'Питание', icon: '🍌', training: 'Тренировка питания на ходу', base: 90, effect: 'Больше гелей, лучше усвоение на пунктах питания' },
+  ];
 
   const BOT_NAMES = ['Погачар', 'Вингегор', 'Ван Арт', 'Эвенепул', 'Роглич', 'Ван дер Пул', 'Педерсен', 'Пиднок',
     'Власов', 'Сивцов', 'Захаров', 'Чернецкий', 'Алафилипп', 'Гирмай', 'Бернал'];
@@ -438,8 +485,8 @@
 
   window.GameData = {
     STAT_KEYS, STAT_NAMES, SURFACES, WHEELS, WHEEL_SIZE_NAMES, BIKE_TYPES, BIKES, UPGRADES, MAX_UPGRADE,
-    TRACKS, ENVIRONMENTS, BOT_NAMES, BOT_COLORS, START_MONEY, PRIZE_SHARE, RIDER_SKILLS, RIDER_MAX, TACTICS,
+    TRACKS, EXTRA_TRACKS, TRI_SKILLS, ENVIRONMENTS, BOT_NAMES, BOT_COLORS, START_MONEY, PRIZE_SHARE, RIDER_SKILLS, RIDER_MAX, TACTICS,
     bikeById: (id) => BIKES.find((b) => b.id === id),
-    trackById: (id) => TRACKS.find((t) => t.id === id),
+    trackById: (id) => TRACKS.find((t) => t.id === id) || EXTRA_TRACKS.find((t) => t.id === id),
   };
 })();

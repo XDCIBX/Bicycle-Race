@@ -18,9 +18,11 @@
   const FINISH_CUTOFF = 45;
   const BOT_SKILL = [0.8, 0.86, 0.91, 0.94, 0.965];
   const BOT_UPGRADES = [0, 0, 1, 2, 3];
-  function makeBots(track, count, rnd) {
-    const t = track.def.tier;
-    const pool = D.BIKES.filter((b) => b.tier >= t - 1 && b.tier <= Math.max(2, t + 1));
+  // roster — постоянный состав соперников (в чемпионате имена и цвета не меняются от этапа к этапу).
+  function makeBots(track, count, rnd, roster, tierOverride) {
+    const t = tierOverride || track.def.tier;
+    // В чемпионате соперники ездят на технике не выше уровня чемпионата.
+    const pool = D.BIKES.filter((b) => b.tier >= t - 1 && b.tier <= (roster ? t : Math.max(2, t + 1)));
     const options = pool.map((b) => {
       const upgrades = {};
       D.UPGRADES.forEach((u) => { upgrades[u.id] = clamp(BOT_UPGRADES[t - 1] + (rnd() < 0.4 ? 1 : 0), 0, D.MAX_UPGRADE); });
@@ -40,20 +42,23 @@
       chosen.push(src[Math.floor(rnd() * src.length)]);
     }
     const names = D.BOT_NAMES.slice().sort(() => rnd() - 0.5);
+    // В чемпионате каждый соперник выбирает лучший велосипед под конкретный этап.
+    if (roster) chosen.forEach((c, i) => { chosen[i] = options[Math.min(options.length - 1, Math.floor(i / 2))]; });
     return chosen.map((c, i) => {
+      const ro = roster && roster[i];
       const lvl = Math.min(D.RIDER_MAX, (t - 1) * 2);
       const profile = GS.riderProfile({ endurance: lvl, sprint: lvl, tactics: lvl, technique: lvl });
       profile.corner = 0.95 + t * 0.004;
       return {
-      name: names[i],
+      name: ro ? ro.name : names[i],
       bikeId: c.bike.id,
       wheel: c.wheel,
       stats: c.stats,
       profile,
-      tactic: D.TACTICS[Math.floor(rnd() * D.TACTICS.length)].id,
-      skill: clamp(BOT_SKILL[t - 1] + rnd() * 0.04 - (i === count - 1 ? 0.04 : 0), 0.75, 0.99),
-      jersey: D.BOT_COLORS[(i + 1) % D.BOT_COLORS.length],
-      helmet: ['#ffffff', '#111111', '#e0e0e0'][i % 3],
+      tactic: ro ? ro.tactic : D.TACTICS[Math.floor(rnd() * D.TACTICS.length)].id,
+      skill: clamp(BOT_SKILL[t - 1] + (ro ? ro.skillJitter : rnd() * 0.04 - (i === count - 1 ? 0.04 : 0)), 0.75, 0.99),
+      jersey: ro ? ro.jersey : D.BOT_COLORS[(i + 1) % D.BOT_COLORS.length],
+      helmet: ro ? ro.helmet : ['#ffffff', '#111111', '#e0e0e0'][i % 3],
       };
     });
   }
@@ -72,7 +77,9 @@
       this.dt = 1 / 60;
       this.rnd = window.Tracks.mulberry32((Date.now() ^ (o.seed || 0)) >>> 0);
       this.finishOrder = [];
-      const bots = makeBots(this.track, o.bots != null ? o.bots : 5, this.rnd);
+      const bots = makeBots(this.track, o.bots != null ? o.bots : 5, this.rnd, o.roster, o.tier);
+      this.tier = o.tier || this.def.tier;
+      this.events = [];
       const entries = bots.map((b) => Object.assign({ isPlayer: false }, b));
       if (player) {
         entries.splice(Math.min(entries.length, 3 + Math.floor(this.rnd() * 2)), 0, Object.assign({
@@ -245,7 +252,8 @@
       const locked = this.state === 'countdown';
       const inp = r.input;
 
-      const grip = P.surfaceGrip(st, r.wheel, r.surface) * (onRoad ? 1 : 0.9);
+      const slip = r.surface === 'snow' || r.surface === 'sand' ? (r.profile.slipGrip || 1) : 1;
+      const grip = P.surfaceGrip(st, r.wheel, r.surface) * (onRoad ? 1 : 0.9) * slip;
       const surfK = P.surfaceSpeed(st, r.wheel, r.surface) * (onRoad ? 1 : 0.72);
       const slopeDir = p.slope * Math.cos(r.heading - p.ang);
       r.sprinting = !!(inp.sprint && r.energy > 1 && inp.throttle && !locked);
@@ -261,6 +269,8 @@
         }
       }
       if (r.drafting) vmax *= 1 + r.profile.draft * (r.surface === 'asphalt' ? 1 : 0.5);
+      if (slopeDir < -0.02) vmax *= r.profile.descend || 1;
+      if (this.fraction(r) > 0.93) vmax *= r.profile.finalKick || 1;
       if (r.energy < r.profile.energyMax * 0.08) vmax *= 0.96; // усталость
       r.vmax = vmax;
 
@@ -278,7 +288,13 @@
       }
       // Энергия для спурта.
       const pr = r.profile;
-      if (r.sprinting) r.energy = Math.max(0, r.energy - 20 * dt);
+      if (r.sprinting) r.energy = Math.max(0, r.energy - 20 * (pr.sprintCost || 1) * dt);
+      // Навык «Второе дыхание»: один раз за гонку.
+      if (pr.secondWind && !r.usedSecondWind && r.energy < pr.energyMax * 0.05 && this.state === 'racing') {
+        r.usedSecondWind = true;
+        r.energy += pr.energyMax * 0.35;
+        if (r.isPlayer) this.events.push({ t: this.time, text: '💨 Второе дыхание!' });
+      }
       else r.energy = Math.min(pr.energyMax, r.energy + pr.regen * (inp.throttle ? 1 : 1.8) * (r.drafting ? 1.4 : 1) * dt);
 
       // Руление с ограничением по сцеплению.

@@ -22,12 +22,13 @@
     <header class="topbar">
       <div class="logo"><span class="logo-mark">🚴</span> VELO RUSH <small>2.5D</small></div>
       <nav class="tabs">
-        <button data-screen="tracks" class="active"><i>🏁</i> Гонки</button>
-        <button data-screen="training"><i>🏋️</i> Тренировки</button>
+        <button data-screen="race" class="active"><i>🏁</i> Гонки</button>
+        <button data-screen="rider"><i>🧑</i> Гонщик</button>
         <button data-screen="garage"><i>🔧</i> Гараж</button>
         <button data-screen="shop"><i>🛒</i> Магазин</button>
+        <button data-screen="trophies"><i>🏆</i> Трофеи</button>
       </nav>
-      <div class="money" id="money">🪙 0</div>
+      <div class="hdr-right"><span class="hdr-level" id="hdr-level">Ур. 1</span><div class="money" id="money">🪙 0</div></div>
     </header>
     <main id="screen"></main>
   </div>
@@ -52,7 +53,13 @@
         <div class="hud-speed"><span id="hud-speed">0</span><small>км/ч</small></div>
         <div class="hud-energy"><div class="bar"><div id="hud-energy"></div></div><small>Энергия</small></div>
       </div>
+      <div class="hud-legs" id="hud-legs" hidden></div>
       <div class="hud-center" id="hud-center"></div>
+      <div class="hud-event" id="hud-event"></div>
+      <div class="tri-controls" id="tri-controls" hidden>
+        <button data-pace="easy">🐢 Спокойно</button><button data-pace="steady">⚖️ Ровно</button><button data-pace="hard">🔥 Мощно</button>
+        <button id="btn-skip" title="Перемотать этап">⏭</button>
+      </div>
       <div class="hud-buttons">
         <button class="hud-btn" id="btn-speed" title="Скорость времени (F)">×1</button>
         <button class="hud-btn" id="btn-pause" title="Пауза (Esc)">⏸</button>
@@ -74,8 +81,10 @@
   <script src="assets/photos/credits.js"></script>
   <script src="js/state.js"></script>
   <script src="js/track.js"></script>
+  <script src="js/progression.js"></script>
   <script src="js/render.js"></script>
   <script src="js/race.js"></script>
+  <script src="js/triathlon.js"></script>
   <script src="js/bikeart.js"></script>
   <script src="js/photos.js"></script>
   <script src="js/ui.js"></script>

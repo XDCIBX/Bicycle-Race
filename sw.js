@@ -1,10 +1,10 @@
 // Сервис-воркер: игра работает офлайн после первого запуска (в т.ч. на iPhone с экрана «Домой»).
 // Файлы игры — «кэш, затем обновление из сети»; фото с Wikimedia Commons — кэш навсегда.
-const VERSION = 'velorush-v2';
+const VERSION = 'velorush-v3';
 const PHOTOS = 'velorush-photos-v1';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
-  'js/data.js', 'js/state.js', 'js/track.js', 'js/render.js', 'js/race.js', 'js/bikeart.js', 'js/photos.js', 'js/ui.js', 'js/main.js',
+  'js/data.js', 'js/state.js', 'js/track.js', 'js/progression.js', 'js/render.js', 'js/race.js', 'js/triathlon.js', 'js/bikeart.js', 'js/photos.js', 'js/ui.js', 'js/main.js',
   'assets/photos/credits.js',
   'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
 ];
