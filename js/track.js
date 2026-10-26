@@ -151,6 +151,7 @@
 
     // Озёра и море: сначала ставим водоёмы, чтобы декорации их обходили.
     const lakes = [];
+    let shore = null;
     const inLake = (x, y, pad) => lakes.some((l) => {
       const dx = x - l.x, dy = y - l.y;
       const c = Math.cos(-l.rot), sn = Math.sin(-l.rot);
@@ -258,8 +259,29 @@
           objects.push({ type: 'buoy', x: a.x, y: a.y, z: 0, big: true, seed: rnd() });
         }
       }
-      const pon = at(-14, 0);
-      objects.push({ type: 'pontoon', x: pon.x, y: pon.y, z: 0, ang: pon.p.ang });
+      // Берег: пляж и газон вдоль одной стороны озера, с понтоном до воды.
+      let mnX = Infinity, mxX = -Infinity, mnY = Infinity;
+      samples.forEach((q) => { mnX = Math.min(mnX, q.x); mxX = Math.max(mxX, q.x); mnY = Math.min(mnY, q.y); });
+      const edgeY = mnY - 14;
+      const edge = [];
+      for (let x = mnX - 280; x <= mxX + 280; x += 10) edge.push([x, edgeY + Math.sin(x * 0.045) * 3 + Math.sin(x * 0.13) * 1.2]);
+      shore = { edge, depth: 360 };
+      const edgeAt = (x) => edgeY + Math.sin(x * 0.045) * 3 + Math.sin(x * 0.13) * 1.2;
+      const landTypes = ['palm', 'tree', 'umbrella', 'tree', 'bench', 'birch', 'flowers', 'umbrella'];
+      for (let x = mnX - 240; x < mxX + 240; x += 6) {
+        const y = edgeAt(x) - 12 - Math.pow(rnd(), 1.3) * 70;
+        objects.push({ type: landTypes[Math.floor(rnd() * landTypes.length)], x, y, z: 0, ang: 0, seed: rnd() });
+      }
+      // Болельщики и шатры на пляже у старта.
+      for (let x = -70; x < 70; x += 1.6) {
+        for (let row = 0; row < 3; row++) {
+          if (rnd() < 0.3) continue;
+          objects.push({ type: 'fan', x: x + (rnd() - 0.5), y: edgeAt(x) - 3 - row * 1.5 - rnd() * 0.5, z: 0, seed: rnd(), c: D.BOT_COLORS[Math.floor(rnd() * D.BOT_COLORS.length)] });
+        }
+      }
+      for (let k = 0; k < 4; k++) objects.push({ type: 'tent', x: -60 + k * 28, y: edgeAt(-60 + k * 28) - 14, z: 0, ang: 0, c: ['#e63946', '#118ab2', '#ffb703', '#2a9d8f'][k], seed: rnd() });
+      const pon = at(-14, -14);
+      objects.push({ type: 'pontoon', x: pon.x, y: pon.y, z: 0, ang: pon.p.ang, len: 32 });
       lakes.forEach((l) => { if (l.kind === 'sea') objects.push({ type: 'boat', x: l.x, y: l.y, z: 0, seed: rnd() }); });
     } else {
       // Ограждения и рекламные щиты у старта, шатры команд, трибуна.
@@ -285,6 +307,7 @@
       for (let i = 0; i < N; i += 2) {
         const p = samples[i];
         if (p.curvMax > 0.03 && def.env !== 'city' && def.env !== 'park') {
+          if (def.env === 'mountain') { segObj('guardrail', p.s, -p.turn * (hw + 1.2), 4.2, {}); continue; }
           const a = at(p.s, -p.turn * (hw + 1.6));
           objects.push({ type: def.env === 'forest' || def.env === 'countryside' ? 'haybale' : 'tyres', x: a.x, y: a.y, z: p.z, seed: rnd() });
         }
@@ -298,6 +321,40 @@
           const a = at(s0, side * (hw + 5.2));
           objects.push({ type: 'car', x: a.x, y: a.y, z: a.p.z, ang: a.p.ang, c: ['#c0392b', '#2c3e50', '#ecf0f1', '#2980b9', '#f1c40f', '#7f8c8d'][Math.floor(rnd() * 6)], seed: rnd() });
         }
+      }
+      // Деревянные заборы вдоль полей.
+      if (def.env === 'meadow' || def.env === 'countryside' || def.env === 'park') {
+        for (let s0 = 120; s0 < L - 120;) {
+          const run = 50 + rnd() * 110, side = rnd() < 0.5 ? -1 : 1;
+          for (let t = 0; t < run; t += 5) {
+            if (samples[Math.floor((s0 + t) / step) % N].curvMax > 0.02) continue;
+            segObj('fence', s0 + t, side * (hw + 5.5), 5, { seed: rnd() });
+          }
+          s0 += run + 60 + rnd() * 120;
+        }
+      }
+      // Линия электропередачи вдоль шоссе.
+      if (def.env === 'meadow' || def.env === 'countryside' || def.env === 'desert') {
+        const poles = [];
+        for (let s0 = 30; s0 < L - 20; s0 += 42) { const a = at(s0, hw + 11); poles.push({ type: 'pole', x: a.x, y: a.y, z: a.p.z }); }
+        poles.forEach((pl, i) => { const n = poles[(i + 1) % poles.length]; pl.nx2 = n.x; pl.ny2 = n.y; pl.nz2 = n.z; objects.push(pl); });
+      }
+      // Сугробы вдоль укатанной снежной трассы.
+      if (def.env === 'snow') {
+        for (let s0 = 0; s0 < L; s0 += 4.5) {
+          for (const side of [-1, 1]) {
+            if (rnd() < 0.3) continue;
+            const a = at(s0, side * (hw + 1.6 + rnd() * 0.8));
+            objects.push({ type: 'snowbank', x: a.x, y: a.y, z: a.p.z, seed: rnd(), ang: a.p.ang });
+          }
+        }
+      }
+      // Светофоры у пешеходных переходов.
+      if (def.env === 'city') {
+        samples.forEach((p) => {
+          if (!p.crosswalk) return;
+          for (const side of [-1, 1]) { const a = at(p.s - 1, side * (hw + 1.8)); objects.push({ type: 'trafficlight', x: a.x, y: a.y, z: p.z, seed: rnd(), ang: p.ang }); }
+        });
       }
       lakes.forEach((l) => { if (rnd() < 0.6) objects.push({ type: 'boat', x: l.x + (rnd() - 0.5) * l.rx * 0.6, y: l.y + (rnd() - 0.5) * l.ry * 0.6, z: l.z, seed: rnd() }); });
     }
@@ -323,7 +380,7 @@
     for (let i = 0; i < N; i++) climb += Math.max(0, samples[(i + 1) % N].z - samples[i].z);
 
     return {
-      def, env, samples, N, L, step, hw, objects, decals, lakes, locate, nearestIndex,
+      def, env, samples, N, L, step, hw, objects, decals, lakes, shore, locate, nearestIndex,
       // Высота земли в точке (по ближайшему участку трассы), с кэшем по клеткам.
       groundZ(x, y) {
         const k = `${Math.round(x / 12)},${Math.round(y / 12)}`;
@@ -333,6 +390,18 @@
       },
       bounds: { minX, minY, maxX, maxY }, climb,
       sampleAt(s) { return samples[Math.floor((((s % L) + L) % L) / step) % N]; },
+      // Плавная точка на центральной линии: интерполяция между соседними сэмплами
+      // (без неё движение по трассе идёт «ступеньками» по 2 единицы).
+      pointAt(s) {
+        const u = (((s % L) + L) % L) / step;
+        const i = Math.floor(u) % N, t = u - Math.floor(u);
+        const a = samples[i], b = samples[(i + 1) % N];
+        let da = b.ang - a.ang;
+        while (da > Math.PI) da -= 2 * Math.PI;
+        while (da < -Math.PI) da += 2 * Math.PI;
+        const ang = a.ang + da * t;
+        return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t, ang, nx: -Math.sin(ang), ny: Math.cos(ang), surface: a.surface };
+      },
     };
   }
 

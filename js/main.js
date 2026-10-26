@@ -165,7 +165,9 @@
     $('hud-energy').parentElement.nextElementSibling.textContent = 'Энергия';
     $('hud-energy').style.width = (p.energy / p.profile.energyMax * 100) + '%';
     const tac = D.TACTICS.find((t) => t.id === p.tactic);
-    setText('hud-tactic', `${tac.icon} ${tac.name}${p.drafting ? ' · на колесе' : ''}${p.sprinting ? ' · СПУРТ!' : ''}`);
+    const sprintOn = p.sprintHold > 0;
+    setText('hud-tactic', sprintOn ? '⚡ СПУРТ!' : `${tac.icon} ${tac.name}${p.drafting ? ' · на колесе' : ''}`);
+    $('hud-tactic').classList.toggle('sprint', sprintOn);
     $('btn-sprint').disabled = p.energy < p.profile.energyMax * 0.08 || race.state !== 'racing' || p.finished;
     const surf = D.SURFACES[p.surface];
     setText('hud-surf', p.onRoad ? surf.name : `Вне трассы (${surf.name.toLowerCase()})`);
@@ -201,6 +203,7 @@
     $('hud-energy').parentElement.nextElementSibling.textContent = `Гликоген · гелей ${p.gelsLeft}`;
     const pace = TRI.PACES[p.pace];
     setText('hud-tactic', `${pace.icon} ${pace.name}${p.bonk ? ' · 🧱 «СТЕНА»!' : ''}`);
+    $('hud-tactic').classList.toggle('sprint', false);
     setText('hud-surf', race.isTransition(leg.kind) ? 'Транзитная зона' : leg.kind === 'swim' ? 'Открытая вода' : leg.kind === 'run' ? 'Беговая трасса' : D.SURFACES[race.track.sampleAt(0).surface].name);
     $('hud-surf-dot').style.background = leg.kind === 'swim' ? '#2f7fb8' : leg.kind === 'run' ? '#b07a5a' : '#4b4f56';
     setText('hud-slope', '');

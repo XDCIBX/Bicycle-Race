@@ -533,6 +533,48 @@
     renderBikeDetail($('#gdetail', root), UI.garageSel);
   }
 
+  // ── Продажа велосипеда: половина цены + 40% вложенного в улучшения ──
+  function sellValue(id) {
+    const bike = D.bikeById(id);
+    const o = UI.state.owned[id];
+    let invested = 0;
+    D.UPGRADES.forEach((up) => { for (let l = 0; l < (o.upgrades[up.id] || 0); l++) invested += GS.upgradePrice(id, up.id, l); });
+    return Math.round((bike.price * 0.5 + invested * 0.4) / 10) * 10;
+  }
+  function confirmSell(id) {
+    const st = UI.state;
+    const bike = D.bikeById(id);
+    const value = sellValue(id);
+    const el = $('#prerace');
+    el.innerHTML = `
+      <div class="panel" style="max-width:420px">
+        <h2 style="margin:0">Продать ${esc(bike.name)}?</h2>
+        <div class="photo" id="sell-photo" style="border-radius:12px"></div>
+        <div>Вы получите <b>${fmtMoney(value)}</b>: половину цены велосипеда и 40% стоимости его улучшений. Колёса остаются у вас.</div>
+        ${id === st.active ? '<div class="muted" style="font-size:13px">Это ваш гоночный велосипед — для гонок будет выбран другой из гаража.</div>' : ''}
+        <div class="row" style="margin-top:6px"><button class="btn danger" id="sell-ok" style="flex:1">Продать</button><button class="btn" id="sell-cancel">Отмена</button></div>
+      </div>`;
+    window.BikePhotos.attach($('#sell-photo', el), bike, st.owned[id].wheel);
+    el.hidden = false;
+    const close = () => { el.hidden = true; };
+    $('#sell-cancel', el).onclick = close;
+    el.onclick = (e) => { if (e.target === el) close(); };
+    $('#sell-ok', el).onclick = () => {
+      if (Object.keys(st.owned).length <= 1) { close(); return; }
+      delete st.owned[id];
+      st.money += value;
+      if (st.active === id) {
+        // Выбираем самый дорогой из оставшихся велосипедов.
+        st.active = Object.keys(st.owned).sort((a, b) => D.bikeById(b).price - D.bikeById(a).price)[0];
+      }
+      UI.garageSel = st.active;
+      commit(true);
+      close();
+      toast(`${bike.name} продан за ${fmtMoney(value)}`);
+      render();
+    };
+  }
+
   function wheelChips(w) {
     const keys = ['asphalt', 'cobble', 'gravel', 'dirt', 'sand', 'snow'];
     const roll = keys.map((k) => {
@@ -558,6 +600,7 @@
           ${statBars(stats, bike.stats)}
           <div class="row">
             ${id === st.active ? '<span class="badge hot">Выбран для гонок</span>' : '<button class="btn primary" id="btn-activate">Выбрать для гонок</button>'}
+            ${Object.keys(st.owned).length > 1 ? `<button class="btn danger" id="btn-sell">Продать · ${fmtMoney(sellValue(id))}</button>` : ''}
             <span class="muted" style="font-size:12px">Синий — база, оранжевый — улучшения, колёса, тренировки и навыки</span>
           </div>
         </div>
@@ -568,6 +611,8 @@
     window.BikePhotos.attach($('#dphoto', el), bike, o.wheel);
     const act = $('#btn-activate', el);
     if (act) act.onclick = () => { st.active = id; commit(); toast(`${bike.name} — готов к старту`); render(); };
+    const sell = $('#btn-sell', el);
+    if (sell) sell.onclick = () => confirmSell(id);
 
     const wl = $('#wheels', el);
     Object.entries(D.WHEELS).filter(([wid]) => GS.wheelFits(id, wid)).forEach(([wid, w]) => {

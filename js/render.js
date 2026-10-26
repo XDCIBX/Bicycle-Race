@@ -119,12 +119,18 @@
       this.setupCamera(race);
       const c = this.cam;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = track.env.ground;
-      ctx.fillRect(0, 0, this.W, this.Hs);
       this.now = performance.now() / 1000;
+      if (track.env.water) {
+        // Вода: вдали светлее (отражение неба), вблизи глубже и темнее.
+        const wg = ctx.createLinearGradient(0, 0, 0, this.Hs);
+        wg.addColorStop(0, '#7dbbdc'); wg.addColorStop(0.3, '#3d8fc2'); wg.addColorStop(1, '#17557f');
+        ctx.fillStyle = wg;
+      } else ctx.fillStyle = track.env.ground;
+      ctx.fillRect(0, 0, this.W, this.Hs);
 
       this.drawGround(track);
       this.drawLakes(track);
+      this.drawShore(track);
       this.drawDecals(track);
       this.drawRoad(track, race);
       if (race.groundDecor) race.groundDecor.forEach((g) => this.poly(g.pts, g.fill));
@@ -153,7 +159,7 @@
       }
       this.drawParticles(race, false);
       this.drawClouds(track);
-      if (race.focus && race.focus.sprinting) this.drawSpeedLines();
+      if (race.focus && race.focus.sprintHold > 0) this.drawSpeedLines();
 
       // Дымка вдали (воздушная перспектива).
       const hz = ctx.createLinearGradient(0, 0, 0, this.Hs * 0.35);
@@ -175,7 +181,7 @@
       const c = this.cam, ctx = this.ctx;
       const water = track.env.water;
       if (this.lowDetail && !water) return;
-      const CELL = 11, R = this.lowDetail ? 90 : 125;
+      const CELL = water ? 6.5 : 11, R = water ? (this.lowDetail ? 70 : 95) : (this.lowDetail ? 90 : 125);
       const fx = c.x + c.ca * 40, fy = c.y + c.sa * 40;
       const x0 = Math.floor((fx - R) / CELL), x1 = Math.floor((fx + R) / CELL);
       const y0 = Math.floor((fy - R) / CELL), y1 = Math.floor((fy + R) / CELL);
@@ -186,14 +192,30 @@
           const cx = (gx + 0.5) * CELL + (h - 0.5) * 6, cy = (gy + 0.5) * CELL + ((h * 7) % 1 - 0.5) * 6;
           if ((cx - fx) ** 2 + (cy - fy) ** 2 > R * R) continue;
           if (water) {
-            const z = 0;
-            const ph = this.now * 1.3 + h * 20;
-            const len = 1.5 + h * 2.5, ox = Math.sin(ph) * 0.8;
-            const a = this.project(cx + ox - len, cy + Math.cos(ph) * 0.4, z), b = this.project(cx + ox + len, cy + Math.cos(ph) * 0.4, z);
-            if (!a || !b) continue;
-            ctx.strokeStyle = h > 0.5 ? 'rgba(255,255,255,0.22)' : 'rgba(10,50,90,0.2)';
-            ctx.lineWidth = Math.max(1, 0.25 * a[2]);
-            ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo((a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 0.3 * a[2], b[0], b[1]); ctx.stroke();
+            // Гребень волны (светлый) и впадина (тёмная) медленно бегут по ветру; редкие солнечные блики.
+            const dist = Math.hypot(cx - fx, cy - fy) / R;
+            const fade = Math.max(0, 1 - dist * dist);
+            const ph = this.now * 1.4 + h * 30;
+            const drift = Math.sin(ph) * 1.1;
+            const len = 1.0 + h * 2.4;
+            const x0 = cx + drift, y0 = cy + Math.cos(ph * 0.7) * 0.5;
+            const a = this.project(x0 - len, y0, 0), m = this.project(x0, y0 - 0.35, 0), b = this.project(x0 + len, y0, 0);
+            if (!a || !b || !m) continue;
+            const t1 = this.project(x0 - len * 0.8, y0 + 0.45, 0), t2 = this.project(x0 + len * 0.8, y0 + 0.45, 0);
+            if (t1 && t2) {
+              ctx.strokeStyle = `rgba(8,40,72,${0.22 * fade})`; ctx.lineWidth = Math.max(1, 0.2 * a[2]);
+              ctx.beginPath(); ctx.moveTo(t1[0], t1[1]); ctx.quadraticCurveTo(m[0], m[1] + 0.4 * a[2], t2[0], t2[1]); ctx.stroke();
+            }
+            ctx.strokeStyle = `rgba(235,248,255,${(0.12 + 0.2 * (0.5 + 0.5 * Math.sin(ph))) * fade})`;
+            ctx.lineWidth = Math.max(1, 0.13 * a[2]);
+            ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(m[0], m[1], b[0], b[1]); ctx.stroke();
+            if (h > 0.8) {
+              const gl = Math.pow(Math.max(0, Math.sin(this.now * 3.1 + h * 50)), 10) * fade;
+              if (gl > 0.05) {
+                const g = this.project(cx - drift, cy, 0);
+                if (g) { ctx.fillStyle = `rgba(255,255,255,${gl})`; ctx.beginPath(); ctx.arc(g[0], g[1], Math.max(1, 0.14 * g[2]), 0, 7); ctx.fill(); }
+              }
+            }
             continue;
           }
           if (h < 0.3) continue;
@@ -221,6 +243,12 @@
         this.poly(sc(1.04), sand ? '#7cc6d6' : '#5aa0b8');
         this.poly(sc(0.97), '#2f7fb4');
         this.poly(sc(0.62), '#2a6fa3');
+        // Пена у берега.
+        const foam = l.pts.map(([x, y]) => this.project(l.x + (x - l.x) * 1.0, l.y + (y - l.y) * 1.0, l.z)).filter(Boolean);
+        if (foam.length > 3) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = Math.max(1, 0.2 * foam[0][2]);
+          ctx.beginPath(); foam.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.stroke();
+        }
         // Блики.
         for (let k = 0; k < 6; k++) {
           const a = k * 1.7 + l.rx, t = this.now * 0.6 + k;
@@ -230,6 +258,30 @@
           ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = Math.max(1, 0.2 * p1[2]);
           ctx.beginPath(); ctx.moveTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]); ctx.stroke();
         }
+      }
+    }
+
+    // Берег у плавательной трассы: газон, пляж, мокрый песок, мелководье и линия прибоя.
+    drawShore(track) {
+      const sh = track.shore;
+      if (!sh) return;
+      const c = this.cam, ctx = this.ctx;
+      const near = sh.edge.filter(([x, y]) => (x - c.x) ** 2 + (y - c.y) ** 2 < (VIEW + 40) ** 2);
+      if (!near.length) return;
+      const e = sh.edge;
+      const off = (d) => e.map(([x, y]) => [x, y + d, 0]);
+      const band = (d0, d1) => off(d0).concat(off(d1).reverse());
+      const far = e[0][1] - sh.depth;
+      this.poly(off(-14).concat([[e[e.length - 1][0], far, 0], [e[0][0], far, 0]]), '#6aa84f');
+      this.poly(band(-14, -1.6), '#e8d6a6');
+      this.poly(band(-1.6, 0), '#c9ad7a');
+      this.poly(band(0, 4), 'rgba(120,200,215,0.45)');
+      // Прибой: пенная линия набегает и откатывается.
+      const wv = Math.sin(this.now * 1.3) * 0.7;
+      const pts = near.map(([x, y]) => this.project(x, y + 0.6 + wv + Math.sin(this.now * 2 + x * 0.12) * 0.35, 0)).filter(Boolean);
+      if (pts.length > 1) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = Math.max(1.5, 0.3 * pts[0][2]); ctx.lineJoin = 'round';
+        ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.stroke();
       }
     }
 
@@ -307,6 +359,7 @@
 
     drawDecals(track) {
       const ctx = this.ctx, c = this.cam;
+      const grassy = ['meadow', 'countryside', 'mountain', 'forest', 'park'].includes(track.def.env);
       const R2 = 120 * 120;
       for (const d of track.decals) {
         const dx = d.x - c.x, dy = d.y - c.y;
@@ -315,6 +368,17 @@
         if (!p) continue;
         const r = d.r * p[2];
         if (p[0] < -r || p[0] > this.W + r || p[1] < -r || p[1] > this.Hs + r) continue;
+        if (grassy && d.k > 0.55 && p[2] > 6) {
+          // Пучок травы: несколько травинок с наклоном.
+          const t = this.project(d.x, d.y, d.z + 0.35 + d.r * 0.3);
+          if (t) {
+            ctx.strokeStyle = d.k > 0.8 ? '#3f7a2a' : '#5a9a3a'; ctx.lineWidth = Math.max(1, 0.06 * p[2]); ctx.lineCap = 'round';
+            ctx.beginPath();
+            for (let b = -2; b <= 2; b++) { ctx.moveTo(p[0] + b * 0.08 * p[2], p[1]); ctx.lineTo(t[0] + b * 0.18 * p[2] + Math.sin(this.now * 2 + d.k * 9) * 0.05 * p[2], t[1]); }
+            ctx.stroke();
+            continue;
+          }
+        }
         ctx.fillStyle = d.c;
         ctx.beginPath();
         ctx.ellipse(p[0], p[1], r, r * 0.62, d.k * 3, 0, Math.PI * 2);
@@ -466,6 +530,11 @@
         const pr = this.project(p.x, p.y, p.z);
         if (!pr) continue;
         ctx.globalAlpha = Math.max(0, p.life / p.max) * p.alpha;
+        if (p.ring) {
+          ctx.strokeStyle = p.c; ctx.lineWidth = Math.max(1, 0.08 * pr[2]);
+          ctx.beginPath(); ctx.ellipse(pr[0], pr[1], Math.max(0.5, p.r * pr[2]), Math.max(0.5, p.r * pr[2] * 0.7), 0, 0, Math.PI * 2); ctx.stroke();
+          continue;
+        }
         ctx.fillStyle = p.c;
         ctx.beginPath();
         ctx.arc(pr[0], pr[1], Math.max(0.5, p.r * pr[2]), 0, Math.PI * 2);
@@ -807,10 +876,11 @@
           break;
         }
         case 'pontoon': {
-          this.prism(o.x, o.y, 0, 6, 16, 0.35, o.ang, '#a0744a');
+          this.prism(o.x, o.y, 0, 6, o.len || 16, 0.35, o.ang, '#a0744a');
           const ca = Math.cos(o.ang), sa = Math.sin(o.ang);
           ctx.strokeStyle = 'rgba(60,35,15,0.5)'; ctx.lineWidth = 1;
-          for (let k = -7; k <= 7; k += 1) {
+          const half = Math.floor((o.len || 16) / 2) - 1;
+          for (let k = -half; k <= half; k += 1) {
             const a = this.project(o.x - ca * 3 - sa * k, o.y - sa * 3 + ca * k, 0.36), b = this.project(o.x + ca * 3 - sa * k, o.y + sa * 3 + ca * k, 0.36);
             if (a && b) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
           }
@@ -858,6 +928,74 @@
             ctx.strokeStyle = '#b8bec6'; ctx.lineWidth = Math.max(1.5, 0.08 * q1[2]);
             ctx.beginPath(); ctx.moveTo(q1[0], q1[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]); ctx.lineTo(q2[0], q2[1]); ctx.stroke();
           }
+          break;
+        }
+        case 'fence': {
+          // Деревянный забор: столбики и две жерди.
+          const P = (t, h) => this.project(o.x1 + (o.x2 - o.x1) * t, o.y1 + (o.y2 - o.y1) * t, o.z + (o.z2 - o.z) * t + h);
+          ctx.strokeStyle = '#8a6440'; ctx.lineCap = 'round';
+          for (const t of [0, 0.5]) { const a = P(t, 0), b = P(t, 1.2); if (a && b) { ctx.lineWidth = Math.max(1.5, 0.12 * a[2]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); } }
+          for (const h of [0.55, 1.0]) { const a = P(0, h), b = P(1, h); if (a && b) { ctx.strokeStyle = '#a07a52'; ctx.lineWidth = Math.max(1, 0.09 * a[2]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); } }
+          break;
+        }
+        case 'guardrail': {
+          const P = (t, h) => this.project(o.x1 + (o.x2 - o.x1) * t, o.y1 + (o.y2 - o.y1) * t, o.z + (o.z2 - o.z) * t + h);
+          for (const t of [0, 0.5]) { const a = P(t, 0), b = P(t, 0.75); if (a && b) { ctx.strokeStyle = '#6b7178'; ctx.lineWidth = Math.max(1.5, 0.1 * a[2]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); } }
+          this.poly([[o.x1, o.y1, o.z + 0.45], [o.x2, o.y2, o.z2 + 0.45], [o.x2, o.y2, o.z2 + 0.75], [o.x1, o.y1, o.z + 0.75]], '#c3c9d0');
+          this.poly([[o.x1, o.y1, o.z + 0.58], [o.x2, o.y2, o.z2 + 0.58], [o.x2, o.y2, o.z2 + 0.62], [o.x1, o.y1, o.z + 0.62]], '#8d949c');
+          break;
+        }
+        case 'pole': {
+          // Деревянная опора ЛЭП с траверсой и провисающими проводами до следующей опоры.
+          const top = this.project(o.x, o.y, o.z + 8);
+          if (!top) return;
+          ctx.strokeStyle = '#6b4f33'; ctx.lineWidth = Math.max(1.5, 0.22 * s); ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(top[0], top[1]); ctx.stroke();
+          const dx = o.nx2 - o.x, dy = o.ny2 - o.y, L2 = Math.hypot(dx, dy) || 1;
+          const px = -dy / L2, py = dx / L2;
+          ctx.strokeStyle = '#4e3a26'; ctx.lineWidth = Math.max(1, 0.12 * top[2]);
+          const c1 = this.project(o.x + px * 1.2, o.y + py * 1.2, o.z + 7.6), c2 = this.project(o.x - px * 1.2, o.y - py * 1.2, o.z + 7.6);
+          if (c1 && c2) { ctx.beginPath(); ctx.moveTo(c1[0], c1[1]); ctx.lineTo(c2[0], c2[1]); ctx.stroke(); }
+          ctx.strokeStyle = 'rgba(30,30,30,0.6)'; ctx.lineWidth = 1;
+          for (const k of [-1, 0, 1]) {
+            const a = this.project(o.x + px * k, o.y + py * k, o.z + 7.6), b = this.project(o.nx2 + px * k, o.ny2 + py * k, o.nz2 + 7.6);
+            const m = this.project((o.x + o.nx2) / 2 + px * k, (o.y + o.ny2) / 2 + py * k, (o.z + o.nz2) / 2 + 6.4);
+            if (a && b && m) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(2 * m[0] - (a[0] + b[0]) / 2, 2 * m[1] - (a[1] + b[1]) / 2, b[0], b[1]); ctx.stroke(); }
+          }
+          break;
+        }
+        case 'snowbank': {
+          const top = this.project(o.x, o.y, o.z + 0.35 + o.seed * 0.3);
+          if (!top) return;
+          const r = (1.2 + o.seed * 0.8) * s;
+          ctx.fillStyle = '#c9d6e2'; ctx.beginPath(); ctx.ellipse(base[0], base[1], r, r * 0.42, 0, 0, 7); ctx.fill();
+          ctx.fillStyle = '#f4f8fc'; ctx.beginPath(); ctx.ellipse(top[0], top[1], r * 0.85, r * 0.32, 0, 0, 7); ctx.fill();
+          break;
+        }
+        case 'fern': {
+          ctx.strokeStyle = o.seed > 0.5 ? '#3f8a35' : '#4f9a3a'; ctx.lineCap = 'round';
+          for (let k = 0; k < 7; k++) {
+            const a = k / 7 * Math.PI * 2 + o.seed * 3;
+            const tip = this.project(o.x + Math.cos(a) * 1.1, o.y + Math.sin(a) * 1.1, o.z + 0.35);
+            const mid = this.project(o.x + Math.cos(a) * 0.5, o.y + Math.sin(a) * 0.5, o.z + 0.55);
+            if (!tip || !mid) continue;
+            ctx.lineWidth = Math.max(1, 0.12 * s);
+            ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.quadraticCurveTo(mid[0], mid[1], tip[0], tip[1]); ctx.stroke();
+          }
+          break;
+        }
+        case 'trafficlight': {
+          const top = this.project(o.x, o.y, o.z + 3.4);
+          if (!top) return;
+          ctx.strokeStyle = '#2d3036'; ctx.lineWidth = Math.max(1.5, 0.14 * s);
+          ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(top[0], top[1]); ctx.stroke();
+          const w = 0.3 * top[2];
+          ctx.fillStyle = '#1b1c1f'; ctx.fillRect(top[0] - w / 2, top[1] - w * 2.6, w, w * 2.8);
+          const lit = Math.floor((this.now + o.seed * 10) / 3) % 3;
+          ['#ff3b30', '#ffcc00', '#34c759'].forEach((col, i) => {
+            ctx.fillStyle = i === lit ? col : 'rgba(80,80,80,0.9)';
+            ctx.beginPath(); ctx.arc(top[0], top[1] - w * 2.2 + i * w * 0.85, w * 0.32, 0, 7); ctx.fill();
+          });
           break;
         }
         case 'gantry': this.drawGantry(track); break;
@@ -982,8 +1120,31 @@
         pts.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])));
         ctx.closePath(); ctx.fill();
       };
+      // Объёмная конечность: тёмный контур, основной цвет и блик сверху.
+      const limb = (a, b, w, col) => {
+        seg(a, b, w * 1.28, 'rgba(0,0,0,0.32)');
+        seg(a, b, w, col);
+        const dx = (b[0] - a[0]), dy = (b[1] - a[1]), L = Math.hypot(dx, dy) || 1;
+        const ox = -dy / L * w * k * 0.22, oy = dx / L * w * k * 0.22;
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = Math.max(0.6, w * k * 0.3);
+        ctx.beginPath(); ctx.moveTo(a[0] - ox, a[1] - oy); ctx.lineTo(b[0] - ox, b[1] - oy); ctx.stroke();
+      };
+      const polyO = (pts, col) => {
+        poly(pts, col);
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = Math.max(0.8, 0.025 * k);
+        ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]))); ctx.closePath(); ctx.stroke();
+      };
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      return { ctx, base, k, make, pt: make(0, 0), seg, path, blob, poly };
+      return { ctx, base, k, make, pt: make(0, 0), seg, path, blob, poly, limb, polyO };
+    }
+
+    // Оттенок кожи — свой у каждого спортсмена (по имени).
+    skinOf(r) {
+      const tones = ['#f1c7a5', '#e2b391', '#d39b6f', '#b97a4f', '#8d5a3b'];
+      let h = 0;
+      const n = r.name || '';
+      for (let i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) >>> 0;
+      return tones[h % tones.length];
     }
 
     // Двухзвенная кинематика (бедро→колено→стопа) в плоскости «вперёд-вверх»: колено выводится вперёд.
@@ -1082,7 +1243,7 @@
       const bike = D.bikeById(r.bikeId);
       const t = bike.type;
       const ph = r.pedal || 0;
-      const standing = !!r.sprinting || (r.climbing && r.v < 9);
+      const standing = r.sprintHold > 0 || (r.climbing && r.v < 9);
       const lean = Math.max(-1, Math.min(1, r.lean || 0));
       // Велосипед раскачивается под гонщиком при работе стоя, весь корпус кренится в повороте.
       const sway = standing ? Math.sin(ph) * 0.13 : 0;
@@ -1091,12 +1252,12 @@
       const riderTilt = lean * 0.3 - sway * 0.35;
       const pt = S.make(riderTilt, 0);
       const bikePt = S.make(bikeTilt, 0);
-      const { seg, blob, poly } = S;
+      const { seg, blob, poly, limb, polyO } = S;
       const tuck = t === 'tt' || t === 'aero' ? 0.14 : t === 'road' ? 0.06 : 0;
       const bob = Math.abs(Math.sin(ph)) * (standing ? 0.05 : 0.012);
       const hipH = standing ? 1.13 + bob : 0.98 - tuck * 0.3 + bob;
       const hipY = standing ? -0.02 : 0.2;
-      const skin = '#e2b391', shorts = '#17181b';
+      const skin = this.skinOf(r), shorts = '#17181b';
       // Ноги: дальняя (по фазе ниже) первой, чтобы правильно перекрывалась.
       const leg = (sgn) => {
         const p = sgn < 0 ? g.pL : g.pR;
@@ -1105,10 +1266,11 @@
         const kx = 0.12 * sgn + (standing ? sway * -0.3 : 0);
         const H = pt(hip[0], hip[1], hip[2]), K = pt(kx, ky, kh);
         const Fo = bikePt(p[0], p[1], p[2] + 0.03);
-        seg(H, K, 0.14, shorts);
-        seg(K, Fo, 0.1, skin);
+        limb(H, K, 0.14, shorts);
+        limb(K, Fo, 0.1, skin);
         seg(pt(kx * 0.6 + p[0] * 0.4, ky * 0.25 + p[1] * 0.75, kh * 0.25 + p[2] * 0.75), Fo, 0.085, '#f4f4f4');
-        blob(Fo, 0.05, 0.12, '#111214');
+        blob(Fo, 0.055, 0.125, '#111214');
+        blob(Fo, 0.03, 0.08, r.jersey);
         blob(K, 0.06, 0.06, shorts);
       };
       if (Math.sin(ph) > 0) { leg(1); leg(-1); } else { leg(-1); leg(1); }
@@ -1116,18 +1278,23 @@
       const shH = (standing ? 1.38 : 1.2 - tuck) + bob, shY = standing ? -0.33 : -0.24 - tuck * 0.6;
       const twist = standing ? Math.sin(ph) * 0.05 : Math.sin(ph) * 0.012;
       const jersey = r.jersey, jerseyD = window.Render.shade(r.jersey, 0.7);
-      poly([pt(-0.15, hipY + 0.04, hipH + 0.02), pt(0.15, hipY + 0.04, hipH + 0.02), pt(0.2 + twist, shY, shH), pt(-0.2 + twist, shY, shH)], jersey);
+      polyO([pt(-0.15, hipY + 0.04, hipH + 0.02), pt(0.15, hipY + 0.04, hipH + 0.02), pt(0.2 + twist, shY, shH), pt(-0.2 + twist, shY, shH)], jersey);
       poly([pt(0.06, hipY + 0.02, hipH + 0.04), pt(0.15, hipY + 0.02, hipH + 0.03), pt(0.2 + twist, shY + 0.02, shH), pt(0.11 + twist, shY + 0.02, shH + 0.01)], jerseyD);
       seg(pt(0, hipY - 0.04, hipH + 0.08), pt(twist, shY + 0.05, shH + 0.02), 0.04, 'rgba(255,255,255,0.55)');
       poly([pt(-0.15, hipY + 0.04, hipH + 0.02), pt(0.15, hipY + 0.04, hipH + 0.02), pt(0.155, hipY - 0.06, hipH + 0.06), pt(-0.155, hipY - 0.06, hipH + 0.06)], jerseyD);
+      // Стартовый номер на спине.
+      poly([pt(-0.08, hipY - 0.07, hipH + 0.08), pt(0.08, hipY - 0.07, hipH + 0.08), pt(0.085, hipY - 0.2, hipH + 0.15), pt(-0.085, hipY - 0.2, hipH + 0.15)], '#f7f7f7');
+      seg(pt(-0.035, hipY - 0.11, hipH + 0.1), pt(-0.035, hipY - 0.17, hipH + 0.13), 0.02, '#222');
+      seg(pt(0.02, hipY - 0.11, hipH + 0.1), pt(0.04, hipY - 0.17, hipH + 0.13), 0.02, '#222');
       // Руки к рулю (руль качается вместе с велосипедом).
       g.hands.forEach((h, i) => {
         const sgn = i ? 1 : -1;
         const sh = pt(0.19 * sgn + twist, shY + 0.03, shH - 0.02);
         const hand = bikePt(h[0], h[1], h[2]);
         const el = pt(0.25 * sgn, (shY + h[1]) / 2 + 0.04, (shH + h[2]) / 2 - 0.06);
-        seg(sh, el, 0.085, jersey);
-        seg(el, hand, 0.065, skin);
+        limb(sh, el, 0.085, jersey);
+        seg(el, pt(0.25 * sgn, (shY + h[1]) / 2 + 0.06, (shH + h[2]) / 2 - 0.05), 0.09, '#f7f7f7');
+        limb(el, hand, 0.065, skin);
         blob(hand, 0.04, 0.05, '#111214');
       });
       // Голова и шлем (слегка покачивается).
@@ -1141,6 +1308,7 @@
         S.ctx.beginPath(); S.ctx.moveTo(a[0], a[1]); S.ctx.lineTo(b[0], b[1]); S.ctx.stroke();
       }
       blob(pt(hx, shY - 0.26, shH + 0.06), 0.09, 0.03, '#0d0f12');
+      blob(pt(hx - 0.04, shY - 0.17, shH + 0.15), 0.045, 0.07, 'rgba(255,255,255,0.35)');
       return S;
     }
 
@@ -1150,9 +1318,9 @@
       const o = opts || {};
       const S = this.spriteFrame(r, 1.22);
       if (!S) return null;
-      const { seg, blob, poly } = S;
+      const { seg, blob, poly, limb, polyO } = S;
       const ph = r.phase || 0;
-      const skin = '#e2b391';
+      const skin = this.skinOf(r);
       const jersey = r.jersey, dark = window.Render.shade(r.jersey, 0.6);
       if (o.pushBike) this.drawBikeSprite(S, Object.assign({}, r, { pedal: 0.6 }), D.bikeById(r.bikeId), 0, 0.62);
       const bob = o.idle ? 0 : 0.045 * Math.cos(2 * ph);
@@ -1171,16 +1339,18 @@
         const hip = [0.1 * sgn, 0.04, 0.95 + bob];
         const [ky, kh] = Renderer.ik(hip[1], hip[2], fy, fh, 0.47, 0.5);
         const H = pt(hip[0], hip[1], hip[2]), K = pt(0.11 * sgn, ky, kh), Fo = pt(fx, fy, fh);
-        seg(H, K, 0.13, skin);
-        seg(K, Fo, 0.095, skin);
+        limb(H, K, 0.13, skin);
+        limb(K, Fo, 0.095, skin);
         seg(pt(fx, fy + 0.02, fh + 0.12), Fo, 0.09, '#f2f2f2');
-        blob(pt(fx, fy - 0.05, fh), 0.06, 0.13, sgn > 0 ? '#39ff88' : '#ff4fd8');
+        blob(pt(fx, fy - 0.05, fh - 0.01), 0.068, 0.14, '#f5f5f5');
+        blob(pt(fx, fy - 0.06, fh + 0.01), 0.055, 0.12, sgn > 0 ? '#22c46e' : '#e8399b');
       };
       // Дальняя (опорная, сзади) нога — первой.
       if (Math.sin(ph) > 0) { leg(1); leg(-1); } else { leg(-1); leg(1); }
       const hipH = 0.95 + bob, shH = 1.42 + bob;
       blob(pt(0, 0.04, hipH), 0.17, 0.13, '#15161a');
-      poly([pt(-0.16, 0.06, hipH), pt(0.16, 0.06, hipH), pt(0.19, 0.06 - leanF - 0.05, shH), pt(-0.19, 0.06 - leanF - 0.05, shH)], jersey);
+      polyO([pt(-0.16, 0.06, hipH), pt(0.16, 0.06, hipH), pt(0.19, 0.06 - leanF - 0.05, shH), pt(-0.19, 0.06 - leanF - 0.05, shH)], jersey);
+      poly([pt(0.09, 0.06, hipH), pt(0.16, 0.06, hipH), pt(0.19, 0.06 - leanF - 0.05, shH), pt(0.12, 0.06 - leanF - 0.05, shH)], dark);
       poly([pt(-0.09, 0.03, hipH + 0.12), pt(0.09, 0.03, hipH + 0.12), pt(0.09, 0.0 - leanF * 0.5, hipH + 0.3), pt(-0.09, 0.0 - leanF * 0.5, hipH + 0.3)], '#ffffff');
       seg(pt(-0.14, 0.03, hipH + 0.17), pt(0.14, 0.03, hipH + 0.17), 0.015, dark);
       const shY = 0.01 - leanF - 0.05;
@@ -1201,8 +1371,8 @@
           el = pt(0.25 * sgn, shY + 0.18 + sw * 0.16, shH - 0.28);
           hand = pt(0.2 * sgn, shY - 0.05 + sw * 0.3, shH - 0.22 + Math.max(0, -sw) * 0.12);
         }
-        seg(sh, el, 0.08, jersey);
-        seg(el, hand, 0.062, skin);
+        limb(sh, el, 0.08, skin);
+        limb(el, hand, 0.062, skin);
         blob(hand, 0.04, 0.045, skin);
       }
       const hy = shY - 0.05;
@@ -1210,6 +1380,7 @@
       blob(pt(0, hy - 0.02, shH + 0.26), 0.11, 0.13, skin);
       blob(pt(0, hy - 0.03, shH + 0.32), 0.12, 0.12, r.helmet);
       blob(pt(0, hy - 0.15, shH + 0.3), 0.12, 0.04, '#111');
+      blob(pt(-0.04, hy - 0.06, shH + 0.36), 0.04, 0.05, 'rgba(255,255,255,0.35)');
       return S;
     }
 
@@ -1220,7 +1391,7 @@
       if (!S) return null;
       const { seg, blob, path, pt } = S;
       const ph = r.phase || 0;
-      const skin = '#e2b391';
+      const skin = this.skinOf(r);
       const roll = Math.sin(ph) * 0.12;
       // Расходящиеся «усы» волны от головы и пенный след.
       S.path([pt(-0.12, -0.62, 0), pt(-0.34, -0.2, 0), pt(-0.5, 0.35, 0)], 0.035, 'rgba(255,255,255,0.18)');
@@ -1233,6 +1404,8 @@
         seg(pt(sgn * 0.09, 0.55, -0.04), pt(sgn * 0.1, 1.05, -0.02 + kick * 0.05), 0.08, 'rgba(226,179,145,0.55)');
         blob(pt(sgn * 0.1, 1.15, 0.02), 0.07 + Math.max(0, kick) * 0.06, 0.1 + Math.max(0, kick) * 0.08, 'rgba(255,255,255,0.85)');
       }
+      // Слой воды поверх погружённого тела.
+      blob(pt(0, 0.55, 0.0), 0.3, 0.75, 'rgba(45,125,175,0.35)');
       // Руки: a ∈ [0, π) — пронос над водой, [π, 2π) — гребок под водой.
       for (const sgn of [-1, 1]) {
         const a = ((ph + (sgn > 0 ? 0 : Math.PI)) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
@@ -1241,8 +1414,11 @@
           const t = a / Math.PI; // 0 — у бедра, 1 — вход в воду впереди
           const hand = pt(sgn * (0.26 - 0.06 * t), 0.15 - 1.05 * t, 0.06 + Math.sin(a) * 0.3);
           const el = pt(sgn * 0.36, -0.15 - 0.45 * t, 0.12 + Math.sin(a) * 0.48);
+          path([sh, el, hand], 0.11, 'rgba(0,0,0,0.3)');
           path([sh, el, hand], 0.085, skin);
           blob(hand, 0.05, 0.065, skin);
+          // Капли, стекающие с руки.
+          if (t > 0.2 && t < 0.8) blob(pt(sgn * 0.3, 0.15 - 1.05 * t + 0.25, 0.04), 0.03, 0.03, 'rgba(255,255,255,0.8)');
           if (t > 0.85) blob(pt(sgn * 0.22, -0.9, 0.02), 0.12 * (t - 0.8) * 5, 0.08 * (t - 0.8) * 5, 'rgba(255,255,255,0.9)');
         } else {
           const t = (a - Math.PI) / Math.PI; // 0 — захват впереди, 1 — выход у бедра
@@ -1258,6 +1434,8 @@
       const breathe = cyc % 2 === 0 && a0 > 0.3 && a0 < 1.5 ? Math.sin((a0 - 0.3) / 1.2 * Math.PI) : 0;
       const hx = breathe * 0.09 + roll * 0.2;
       blob(pt(hx, -0.5, 0.1), 0.12, 0.16, r.helmet);
+      seg(pt(hx, -0.36, 0.11), pt(hx, -0.62, 0.11), 0.03, window.Render.shade(r.jersey, 1.1));
+      blob(pt(hx - 0.04, -0.47, 0.14), 0.04, 0.06, 'rgba(255,255,255,0.4)');
       blob(pt(hx - 0.01, -0.6, 0.12), 0.1, 0.03, '#111');
       if (breathe > 0.4) blob(pt(hx + 0.1, -0.5, 0.08), 0.04, 0.05, skin);
       blob(pt(hx * 0.5, -0.68, 0.01), 0.2, 0.07, 'rgba(255,255,255,0.65)');

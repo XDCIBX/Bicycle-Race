@@ -459,7 +459,7 @@
     city: { ground: '#6f6a64', decal: ['#625d58', '#7d7770'], scenery: ['building', 'building', 'building', 'lamp', 'tree', 'bench'], density: 1.3 },
     countryside: { ground: '#9db04d', decal: ['#c9b95a', '#88a043', '#b7c766'], scenery: ['tree', 'haybale', 'bush', 'house', 'birch', 'flowers'], density: 0.9, lakes: 1 },
     mountain: { ground: '#6d8a4f', decal: ['#7a7d78', '#5b7642', '#8a9a72'], scenery: ['pine', 'pine', 'rock', 'rock', 'pine', 'flowers'], density: 1.2, lakes: 1 },
-    forest: { ground: '#3f6b33', decal: ['#2f5527', '#4e7d3c', '#6b5236'], scenery: ['pine', 'tree', 'pine', 'birch', 'bush', 'pine', 'pine', 'tree', 'log'], density: 1.9, lakes: 1 },
+    forest: { ground: '#3f6b33', decal: ['#2f5527', '#4e7d3c', '#6b5236'], scenery: ['pine', 'tree', 'pine', 'birch', 'bush', 'pine', 'fern', 'pine', 'tree', 'fern', 'log'], density: 2.0, lakes: 1 },
     desert: { ground: '#dcc287', decal: ['#cfb173', '#e8d39c', '#b99a5f'], scenery: ['cactus', 'rock', 'cactus', 'dune'], density: 0.6 },
     snow: { ground: '#e3edf5', decal: ['#cddbe7', '#f7fbff', '#b9c9d8'], scenery: ['snowpine', 'snowpine', 'rock', 'snowpine', 'snowpine', 'snowpine', 'rock', 'snowpine', 'snowman'], density: 1.1 },
     lake: { ground: '#2c78ad', decal: ['#4f97c9', '#7cb8df', '#2a6d9e'], scenery: ['boat', 'kayak'], density: 0.12, water: true },

@@ -46,6 +46,8 @@ h1, h2, h3 { margin: 0 0 10px; }
 .btn:hover:not(:disabled) { border-color: #4a5568; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn.danger { background: #3a1a1f; border-color: #7a2a35; color: #ff9aa8; }
+.btn.danger:hover:not(:disabled) { background: #4d1f27; }
 .btn.gold { background: var(--accent-2); border-color: var(--accent-2); color: #1a1500; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn.small { padding: 5px 10px; font-size: 13px; }
@@ -337,3 +339,15 @@ table.standings .num { text-align: right; }
 
 .build { text-align: center; color: #4d5666; font-size: 11px; padding: 8px 0 18px; }
 @media (max-width: 860px) { .build { padding-bottom: calc(88px + var(--sab)); } }
+
+/* Стабильный HUD: фиксированные размеры, без переносов — ничего не «прыгает» при смене текста. */
+.hud-bottom { flex-wrap: nowrap; }
+.hud-info { width: 220px; flex: none; }
+.hud-surface, .hud-tactic { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+.hud-speed { min-width: 3.4ch; text-align: right; white-space: nowrap; flex: none; }
+.hud-energy { flex: none; }
+.hud-tactic.sprint { color: #1a1500; background: rgba(255, 212, 0, .92); text-shadow: none; }
+@media (max-width: 860px) {
+  .hud-info { width: 150px; }
+  .hud-bottom { gap: 10px; }
+}

@@ -1,7 +1,7 @@
 // Сервис-воркер: игра работает офлайн после первого запуска (в т.ч. на iPhone с экрана «Домой»).
 // Файлы игры — «сначала сеть»: при интернете всегда свежая версия, без сети — копия из кэша.
 // Фото с Wikimedia Commons — кэш навсегда.
-const BUILD = 6;
+const BUILD = 7;
 const VERSION = `velorush-v${BUILD}`;
 const PHOTOS = 'velorush-photos-v1';
 const ASSETS = [

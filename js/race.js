@@ -315,6 +315,8 @@
       r.x += Math.cos(r.heading) * r.v * dt;
       r.y += Math.sin(r.heading) * r.v * dt;
       r.odo = (r.odo || 0) + r.v * dt;
+      // Видимый признак спурта держится 0.5 с — без мигания позы, надписи и эффектов.
+      r.sprintHold = r.sprinting ? 0.5 : Math.max(0, (r.sprintHold || 0) - dt);
       r.climbing = slopeDir > 0.05;
       // Каденс ~90–110 об/мин на ходу, при спурте выше; накатом педали не крутятся.
       r.pedal += (inp.throttle && !locked ? r.v * 0.42 + 2.5 + (r.sprinting ? 2 : 0) : 0) * dt;

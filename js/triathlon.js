@@ -364,7 +364,7 @@
         if (ds > 0 && ds < 60) a.dist = (a.dist || 0) + ds;
         if (dt > 0) a.visV += (Math.max(0, Math.min(40, ds / dt)) - a.visV) * Math.min(1, dt * 6);
         a.lastS = s;
-        const q = course.sampleAt(s);
+        const q = course.pointAt(s);
         const lat = a.lane * course.hw * (mode === 'swim' ? 0.7 : 0.6) + (mode === 'push' ? -0.3 : 0);
         a.mode = mode;
         a.x = q.x + q.nx * lat; a.y = q.y + q.ny * lat; a.z = q.z;
@@ -388,6 +388,10 @@
             const side = this.rnd() < 0.5 ? -1 : 1;
             this.particles.push({ x: a.x - n * 1.35 + m * side * 0.12, y: a.y - m * 1.35 - n * side * 0.12, z: 0.02, vx: 0, vy: 0, vz: 0, life: 1.6, max: 1.6, r: 0.06, c: '#ffffff', alpha: 0.4, grow: 0.12, ground: true });
           }
+          // Расходящиеся круги от головы и рук.
+          if (this.rnd() < dt * 1.4) {
+            this.particles.push({ ring: true, x: a.x + n * 0.6, y: a.y + m * 0.6, z: 0.01, vx: 0, vy: 0, vz: 0, life: 1.3, max: 1.3, r: 0.2, c: '#e6f6ff', alpha: 0.32, grow: 0.65, ground: true });
+          }
           if (this.rnd() < dt * 6) {
             const side = this.rnd() < 0.5 ? -1 : 1;
             this.particles.push({ x: a.x + n * 1.0 + m * side * 0.25, y: a.y + m * 1.0 - n * side * 0.25, z: 0.05, vx: (this.rnd() - 0.5) * 0.6, vy: (this.rnd() - 0.5) * 0.6, vz: 0.9, life: 0.6, max: 0.6, r: 0.04, c: '#f2fbff', alpha: 0.7, grow: 0.05 });
@@ -405,7 +409,7 @@
       const prev = this.legs[showIdx - 1];
       if (!prev || !this.isTransition(prev.kind)) return;
       const hw = course.hw;
-      const at = (s0, lat) => { const q = course.sampleAt(s0); return [q.x + q.nx * lat, q.y + q.ny * lat, q.z + 0.01]; };
+      const at = (s0, lat) => { const q = course.pointAt(s0); return [q.x + q.nx * lat, q.y + q.ny * lat, q.z + 0.01]; };
       const carpet = prev.kind === 't1' ? '#1f5fa8' : '#b3261e';
       for (let s0 = -ZONE - 2; s0 < -2; s0 += 4) {
         this.groundDecor.push({ pts: [at(s0, -hw * 0.85), at(s0, hw * 0.85), at(s0 + 4.2, hw * 0.85), at(s0 + 4.2, -hw * 0.85)], fill: carpet });
