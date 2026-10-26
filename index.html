@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Velo Rush 2.5D — велогонки</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="logo"><span class="logo-mark">🚴</span> VELO RUSH <small>2.5D</small></div>
+      <nav class="tabs">
+        <button data-screen="tracks" class="active">🏁 Гонки</button>
+        <button data-screen="garage">🔧 Гараж</button>
+        <button data-screen="shop">🛒 Магазин</button>
+      </nav>
+      <div class="money" id="money">🪙 0</div>
+    </header>
+    <main id="screen"></main>
+  </div>
+
+  <div id="race-view" hidden>
+    <canvas id="game"></canvas>
+    <div id="hud">
+      <div class="hud-top-left">
+        <div class="hud-pos"><span id="hud-pos">1</span><small>/<span id="hud-total">6</span></small></div>
+        <div class="hud-lap" id="hud-lap">Круг 1/2</div>
+        <div class="hud-time" id="hud-time">00:00.0</div>
+        <ol class="hud-board" id="hud-board"></ol>
+      </div>
+      <canvas id="minimap" width="200" height="200"></canvas>
+      <div class="hud-bottom">
+        <div class="hud-surface"><span class="dot" id="hud-surf-dot"></span><span id="hud-surf">Асфальт</span><span id="hud-slope"></span></div>
+        <div class="hud-speed"><span id="hud-speed">0</span><small>км/ч</small></div>
+        <div class="hud-energy"><div class="bar"><div id="hud-energy"></div></div><small>Спурт [Shift]</small></div>
+      </div>
+      <div class="hud-center" id="hud-center"></div>
+      <div class="hud-warn" id="hud-warn" hidden>⚠ Неверное направление — нажмите R</div>
+      <div class="hud-keys" id="hud-keys">↑/W — педали · ↓/S — тормоз · ←→/AD — руль · Shift — спурт · R — на трассу · Esc — пауза</div>
+      <button class="hud-pause" id="btn-pause" title="Пауза">⏸</button>
+    </div>
+    <div id="touch">
+      <div class="t-left"><button data-k="left">◀</button><button data-k="right">▶</button></div>
+      <div class="t-right"><button data-k="sprint">⚡</button><button data-k="brake">■</button><button data-k="up">▲</button></div>
+    </div>
+    <div class="overlay" id="pause" hidden>
+      <div class="panel">
+        <h2>Пауза</h2>
+        <button class="btn primary" id="btn-resume">Продолжить</button>
+        <button class="btn" id="btn-restart">Начать заново</button>
+        <button class="btn" id="btn-quit">Выйти в меню</button>
+      </div>
+    </div>
+    <div class="overlay" id="results" hidden></div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="assets/photos/credits.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/track.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/race.js"></script>
+  <script src="js/photos.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
