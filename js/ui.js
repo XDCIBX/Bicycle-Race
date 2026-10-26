@@ -531,7 +531,6 @@
     const cups = st.trophies.cups || [];
     const cnt = (k) => medals.filter((m) => m.kind === k).length;
     const events = [...D.TRACKS.map((t) => ({ id: t.id, name: t.name, mode: 'cycle' })), ...TRI.EVENTS.map((e) => ({ id: e.id, name: e.name, mode: 'tri' })), ...D.DH_TRACKS.map((t) => ({ id: t.id, name: t.name, mode: 'dh' }))];
-    const credits = window.BikePhotos.credits();
     root.innerHTML = `
       <div class="section-title"><h2>Трофеи</h2><p>Медали за подиумы в гонках и кубки за чемпионаты.</p></div>
       <div class="trophy-stats">
@@ -556,7 +555,7 @@
           <div class="medal-list">${ms.length ? ['gold', 'silver', 'bronze'].map((k) => { const n = ms.filter((m) => m.kind === k).length; return n ? `<div class="medal-item">${medalSvg(k, String(['gold', 'silver', 'bronze'].indexOf(k) + 1), 40)}<span>×${n}</span></div>` : ''; }).join('') : '<span class="muted" style="font-size:13px">Пока нет медалей</span>'}</div>
         </div>`;
   }).join('')}</div>
-      ${credits.length ? `<h3>Фото велосипедов</h3><div class="credits">${credits.map(({ bike, ph }) => `<div><b>${esc(bike.name)}</b> — <a href="${esc(ph.page || ph.url)}" target="_blank" rel="noopener">${esc(ph.artist)}, ${esc(ph.license)}</a></div>`).join('')}</div>` : ''}`;
+`;
   }
 
   // ═════════ ПЕРЕД СТАРТОМ ═════════
@@ -826,7 +825,7 @@
   function renderShop(root) {
     const st = UI.state;
     root.innerHTML = `
-      <div class="section-title"><h2>Магазин велосипедов</h2><p>Только реальные бренды и модели. Каждая сильна в своём. Фото — с Wikimedia Commons, только при точном совпадении бренда и модели; иначе показана модель велосипеда.</p></div>
+      <div class="section-title"><h2>Магазин велосипедов</h2><p>Только реальные бренды и модели. Каждая сильна в своём. На карточке — модель именно этого велосипеда по настоящей геометрии рамы.</p></div>
       <div class="grid" id="shop-grid"></div>
       <div class="section-title" id="shop-dh"><h2>🏔️ Даунхилл</h2><p>Специальные двухподвесы для спусков: ход 200 мм, двухкоронная вилка, длинная база. Едут только в дисциплине «Даунхилл», у них свои характеристики, покрышки и улучшения.</p></div>
       <div class="grid" id="shop-grid-dh"></div>`;

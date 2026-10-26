@@ -7,7 +7,6 @@
   "scripts": {
     "build": "node tools/build-www.mjs",
     "serve": "python3 -m http.server 8000",
-    "photos": "node tools/fetch-photos.mjs",
     "ios:add": "npm run build && npx cap add ios",
     "ios:sync": "npm run build && npx cap sync ios",
     "ios:open": "npx cap open ios"

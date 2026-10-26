@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="css/style.css?v=9">
+  <link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
   <div id="app">
@@ -33,7 +33,7 @@
     <main id="screen"></main>
   </div>
 
-  <div class="build" id="build">Velo Rush · сборка 9</div>
+  <div class="build" id="build">Velo Rush · сборка 10</div>
   <div class="overlay" id="prerace" hidden></div>
 
   <div id="race-view" hidden>
@@ -70,7 +70,7 @@
     <div class="overlay" id="pause" hidden>
       <div class="panel">
         <h2>Пауза</h2>
-        <div class="muted" style="font-size:12px">Сборка 9</div>
+        <div class="muted" style="font-size:12px">Сборка 10</div>
         <button class="btn primary" id="btn-resume">Продолжить</button>
         <button class="btn" id="btn-restart">Начать заново</button>
         <button class="btn" id="btn-quit">Выйти в меню</button>
@@ -79,20 +79,19 @@
     <div class="overlay" id="results" hidden></div>
   </div>
 
-  <script src="js/data.js?v=9"></script>
-  <script src="assets/photos/credits.js?v=9"></script>
-  <script src="js/state.js?v=9"></script>
-  <script src="js/track.js?v=9"></script>
-  <script src="js/progression.js?v=9"></script>
-  <script src="js/render.js?v=9"></script>
-  <script src="js/race.js?v=9"></script>
-  <script src="js/triathlon.js?v=9"></script>
-  <script src="js/bikeart.js?v=9"></script>
-  <script src="js/photos.js?v=9"></script>
-  <script src="js/ui.js?v=9"></script>
-  <script src="js/main.js?v=9"></script>
+  <script src="js/data.js?v=10"></script>
+  <script src="js/state.js?v=10"></script>
+  <script src="js/track.js?v=10"></script>
+  <script src="js/progression.js?v=10"></script>
+  <script src="js/render.js?v=10"></script>
+  <script src="js/race.js?v=10"></script>
+  <script src="js/triathlon.js?v=10"></script>
+  <script src="js/bikeart.js?v=10"></script>
+  <script src="js/photos.js?v=10"></script>
+  <script src="js/ui.js?v=10"></script>
+  <script src="js/main.js?v=10"></script>
   <script>
-    // Офлайн-режим и установка на iPhone: сервис-воркер кэширует игру и фото.
+    // Офлайн-режим и установка на iPhone: сервис-воркер кэширует игру.
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       // Когда вышла новая версия игры, новый сервис-воркер берёт управление — перезагружаемся один раз,
       // чтобы сразу увидеть обновление, а не старую копию из кэша.
@@ -101,7 +100,7 @@
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (hadController && !reloaded && !window.VeloRush?.race) { reloaded = true; location.reload(); }
       });
-      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js?v=9').then((reg) => reg.update()).catch(() => {}));
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js?v=10').then((reg) => reg.update()).catch(() => {}));
     }
   </script>
 </body>

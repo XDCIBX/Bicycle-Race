@@ -67,12 +67,7 @@ h1, h2, h3 { margin: 0 0 10px; }
 
 /* ── Фото ──────────────────────────────────────────────── */
 .photo { position: relative; aspect-ratio: 16 / 10; background: #1d222c; overflow: hidden; }
-.photo .bike-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.photo .bike-img.art { object-fit: contain; }
-.photo-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
-.photo-tools button { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .25); background: rgba(0, 0, 0, .55); color: #fff; }
-.photo-pop { position: absolute; left: 8px; right: 8px; top: 36px; font-size: 12px; padding: 6px 10px; border-radius: 10px; background: rgba(0, 0, 0, .8); }
-.photo-pop a { color: #dfe6ef; }
+.photo .bike-img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 /* ── Характеристики ──────────────────────────────────── */
 .stats { display: grid; gap: 5px; }
@@ -102,7 +97,6 @@ h1, h2, h3 { margin: 0 0 10px; }
 .garage-item.selected { border-color: var(--accent); }
 .garage-item .thumb { width: 64px; height: 40px; border-radius: 6px; overflow: hidden; flex: none; }
 .garage-item .thumb .photo { aspect-ratio: auto; height: 100%; }
-.garage-item .thumb .photo-tools, .garage-item .thumb .photo-pop { display: none; }
 .detail { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .detail-head { display: grid; grid-template-columns: minmax(260px, 420px) 1fr; }
 .detail-head .info { padding: 16px; display: flex; flex-direction: column; gap: 10px; }

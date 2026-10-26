@@ -172,8 +172,6 @@
 
   // Только реальные бренды и модели. brand/model — для подписи и декалей на раме,
   // look — внешний вид для реалистичной отрисовки (цвета, обода, борт покрышки).
-  // photoQueries — поисковые запросы для Wikimedia Commons; photoMatch — регулярные выражения,
-  // которым ОБЯЗАН соответствовать заголовок файла (бренд и модель), иначе фото не показываем.
   const BIKES = [
     {
       id: 'rockrider', brand: 'Rockrider', model: 'ST 100', maker: 'Decathlon', type: 'mtb', tier: 1, price: 0,
@@ -181,8 +179,6 @@
       stats: { speed: 38, accel: 42, handling: 45, brakes: 45, climb: 35, offroad: 50 },
       sizes: ['mtb'], stockWheel: 'krad',
       desc: 'Самый продаваемый хардтейл Европы от Decathlon. Тяжеловат, зато едет везде понемногу.',
-      photoMatch: { brand: 'rockrider', model: 'st ?1[0-9]0' },
-      photoQueries: ['Rockrider ST 100', 'Rockrider bicycle', 'Decathlon Rockrider', 'hardtail mountain bike'],
     },
     {
       id: 'mongoose', brand: 'Mongoose', model: 'Legion L100', type: 'bmx', tier: 1, price: 700,
@@ -190,8 +186,6 @@
       stats: { speed: 30, accel: 80, handling: 86, brakes: 58, climb: 42, offroad: 42 },
       sizes: ['bmx'], stockWheel: 'grifter',
       desc: 'Хромолевый BMX: взрывной старт и мгновенная реакция на руль. Но потолок скорости низкий.',
-      photoMatch: { brand: 'mongoose', model: 'legion|bmx' },
-      photoQueries: ['Mongoose Legion BMX', 'Mongoose BMX bicycle', 'BMX bicycle'],
     },
     {
       id: 'brompton', brand: 'Brompton', model: 'C Line Explore', type: 'folding', tier: 1, price: 1100,
@@ -199,8 +193,6 @@
       stats: { speed: 40, accel: 66, handling: 82, brakes: 55, climb: 45, offroad: 18 },
       sizes: ['folding'], stockWheel: 'marathon16',
       desc: 'Британская складушка на 16" колёсах. Узкие улицы и шпильки критериума — её стихия.',
-      photoMatch: { brand: 'brompton', model: '' },
-      photoQueries: ['Brompton bicycle', 'Brompton folding bike', 'folding bicycle 16 inch'],
     },
     {
       id: 'trekfx', brand: 'Trek', model: 'FX 3 Disc', type: 'hybrid', tier: 2, price: 1500,
@@ -208,8 +200,6 @@
       stats: { speed: 55, accel: 56, handling: 60, brakes: 70, climb: 55, offroad: 34 },
       sizes: ['road', 'gravel'], stockWheel: 'gravelking',
       desc: 'Фитнес-гибрид с карбоновой вилкой и дисковыми тормозами. Сбалансирован во всём.',
-      photoMatch: { brand: 'trek', model: '\\bfx ?[0-9]?\\b' },
-      photoQueries: ['Trek FX bicycle', 'Trek FX 3', 'Trek hybrid bicycle'],
     },
     {
       id: 'marlin', brand: 'Trek', model: 'Marlin 7', type: 'mtb', tier: 2, price: 1800,
@@ -217,8 +207,6 @@
       stats: { speed: 46, accel: 56, handling: 63, brakes: 72, climb: 52, offroad: 72 },
       sizes: ['mtb'], stockWheel: 'ikon',
       desc: 'Хардтейл для кросс-кантри: вилка RockShox, гидравлика, уверенность на грунте.',
-      photoMatch: { brand: 'trek', model: 'marlin' },
-      photoQueries: ['Trek Marlin', 'Trek Marlin 7', 'Trek mountain bike'],
     },
     {
       id: 'pugsley', brand: 'Surly', model: 'Pugsley', type: 'fat', tier: 2, price: 2400,
@@ -226,8 +214,6 @@
       stats: { speed: 32, accel: 40, handling: 50, brakes: 66, climb: 36, offroad: 88 },
       sizes: ['fat'], stockWheel: 'nate',
       desc: 'Прародитель фэтбайков. Четырёхдюймовые покрышки не тонут ни в песке, ни в снегу.',
-      photoMatch: { brand: 'surly', model: 'pugsley' },
-      photoQueries: ['Surly Pugsley', 'Surly fat bike', 'fatbike'],
     },
     {
       id: 'topstone', brand: 'Cannondale', model: 'Topstone Carbon', type: 'gravel', tier: 3, price: 3200,
@@ -235,8 +221,6 @@
       stats: { speed: 64, accel: 61, handling: 65, brakes: 76, climb: 65, offroad: 62 },
       sizes: ['gravel', 'road'], stockWheel: 'gone',
       desc: 'Гревел с «кингпин»-подвеской заднего треугольника. Король смешанных трасс.',
-      photoMatch: { brand: 'cannondale', model: 'topstone' },
-      photoQueries: ['Cannondale Topstone', 'Cannondale gravel bike', 'gravel bike'],
     },
     {
       id: 'terra', brand: 'Orbea', model: 'Terra M20', type: 'gravel', tier: 3, price: 3600,
@@ -244,8 +228,6 @@
       stats: { speed: 63, accel: 65, handling: 70, brakes: 74, climb: 68, offroad: 65 },
       sizes: ['gravel', 'road'], stockWheel: 'riddler',
       desc: 'Баскский карбоновый гревел: лёгкий, юркий, с агрессивной резиной из коробки.',
-      photoMatch: { brand: 'orbea', model: 'terra' },
-      photoQueries: ['Orbea Terra', 'Orbea gravel bicycle', 'Orbea bicycle'],
     },
     {
       id: 'tcr', brand: 'Giant', model: 'TCR Advanced Pro', type: 'road', tier: 3, price: 4200,
@@ -253,8 +235,6 @@
       stats: { speed: 74, accel: 73, handling: 71, brakes: 70, climb: 84, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Лёгкая карбоновая рама с компактной геометрией. Горы — его конёк.',
-      photoMatch: { brand: 'giant', model: 'tcr' },
-      photoQueries: ['Giant TCR Advanced', 'Giant TCR', 'Giant road bicycle'],
     },
     {
       id: 'stumpjumper', brand: 'Specialized', model: 'Stumpjumper EVO', type: 'enduro', tier: 4, price: 5200,
@@ -262,8 +242,6 @@
       stats: { speed: 50, accel: 58, handling: 78, brakes: 90, climb: 56, offroad: 97 },
       sizes: ['mtb'], stockWheel: 'minion',
       desc: 'Двухподвес с ходом 150 мм. Корни и камни для него как асфальт, но на шоссе — тягач.',
-      photoMatch: { brand: 'specialized|stumpjumper', model: 'stumpjumper' },
-      photoQueries: ['Specialized Stumpjumper', 'Specialized Stumpjumper EVO', 'full suspension mountain bike'],
     },
     {
       id: 'spark', brand: 'Scott', model: 'Spark RC World Cup', type: 'xc', tier: 4, price: 5900,
@@ -271,8 +249,6 @@
       stats: { speed: 60, accel: 72, handling: 80, brakes: 84, climb: 76, offroad: 90 },
       sizes: ['mtb'], stockWheel: 'ikon',
       desc: 'Кросс-кантрийный двухподвес чемпионов мира: амортизатор спрятан в раме, вес под 10 кг.',
-      photoMatch: { brand: 'scott', model: 'spark' },
-      photoQueries: ['Scott Spark RC', 'Scott Spark', 'Scott mountain bike'],
     },
     {
       id: 'diverge', brand: 'Specialized', model: 'Diverge STR', type: 'gravel', tier: 4, price: 6000,
@@ -280,8 +256,6 @@
       stats: { speed: 69, accel: 65, handling: 71, brakes: 80, climb: 67, offroad: 74 },
       sizes: ['gravel', 'road'], stockWheel: 'gone',
       desc: 'Гревел с подвеской Future Shock и подвесным подседельным узлом. Комфорт на любой «гребёнке».',
-      photoMatch: { brand: 'specialized|diverge', model: 'diverge' },
-      photoQueries: ['Specialized Diverge', 'Specialized gravel bike', 'gravel bicycle'],
     },
     {
       id: 'aeroad', brand: 'Canyon', model: 'Aeroad CFR', type: 'aero', tier: 4, price: 7500,
@@ -289,8 +263,6 @@
       stats: { speed: 89, accel: 75, handling: 63, brakes: 72, climb: 70, offroad: 10 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Аэродинамика из аэротрубы: на прямых недосягаем, в поворотах требует аккуратности.',
-      photoMatch: { brand: 'canyon', model: 'aeroad' },
-      photoQueries: ['Canyon Aeroad', 'Canyon Aeroad CFR', 'Canyon road bike'],
     },
     {
       id: 'p5', brand: 'Cervélo', model: 'P5', type: 'tt', tier: 5, price: 9000,
@@ -298,8 +270,6 @@
       stats: { speed: 98, accel: 66, handling: 38, brakes: 62, climb: 60, offroad: 5 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Разделочник для триатлона. Максимальная скорость в игре, но поворачивает как баржа.',
-      photoMatch: { brand: 'cerv[eé]lo', model: '\\bp5\\b' },
-      photoQueries: ['Cervelo P5', 'Cervélo P5', 'Cervelo time trial bicycle'],
     },
     {
       id: 'oltre', brand: 'Bianchi', model: 'Oltre RC', type: 'aero', tier: 5, price: 10000,
@@ -307,8 +277,6 @@
       stats: { speed: 93, accel: 79, handling: 69, brakes: 76, climb: 74, offroad: 10 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Старейший велобренд мира в фирменном цвете «челесте». Аэро-болид с «крыльями» на руле.',
-      photoMatch: { brand: 'bianchi', model: 'oltre' },
-      photoQueries: ['Bianchi Oltre', 'Bianchi Oltre RC', 'Bianchi road bicycle celeste'],
     },
     {
       id: 'tarmac', brand: 'Specialized', model: 'S-Works Tarmac SL8', type: 'road', tier: 5, price: 11000,
@@ -316,8 +284,6 @@
       stats: { speed: 87, accel: 87, handling: 80, brakes: 80, climb: 91, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Гоночный болид пелотона: лёгкий, жёсткий и быстрый. Победитель Гранд-туров.',
-      photoMatch: { brand: 'specialized|s-works', model: 'tarmac' },
-      photoQueries: ['Specialized Tarmac SL8', 'Specialized Tarmac', 'S-Works Tarmac'],
     },
     {
       id: 'colnago', brand: 'Colnago', model: 'V4Rs', type: 'road', tier: 5, price: 12500,
@@ -325,8 +291,6 @@
       stats: { speed: 89, accel: 88, handling: 84, brakes: 82, climb: 90, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Велосипед Тадея Погачара: победы в Туре де Франс и чемпионате мира.',
-      photoMatch: { brand: 'colnago', model: 'v4' },
-      photoQueries: ['Colnago V4Rs', 'Colnago V4', 'Colnago bicycle'],
     },
     {
       id: 'dogma', brand: 'Pinarello', model: 'Dogma F', type: 'road', tier: 5, price: 14000,
@@ -334,8 +298,6 @@
       stats: { speed: 91, accel: 85, handling: 87, brakes: 82, climb: 88, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Итальянская легенда с асимметричной рамой. Лучший баланс скорости и управляемости.',
-      photoMatch: { brand: 'pinarello', model: 'dogma' },
-      photoQueries: ['Pinarello Dogma F', 'Pinarello Dogma', 'Pinarello bicycle'],
     },
   ];
   BIKES.forEach((b) => { b.name = `${b.brand} ${b.model}`; });
@@ -528,32 +490,25 @@
   const DH_BIKES = [
     { id: 'collosus', brand: 'Polygon', model: 'Collosus DH9', tier: 1, price: 1200, color: '#1d1f22', accent: '#d9e021', decal: '#d9e021',
       dhStats: { speed: 50, brakes: 52, handling: 55, suspension: 58, stability: 52, jump: 50 },
-      desc: 'Доступный DH-двухподвес из Индонезии: 200 мм хода, чтобы начать спуски.',
-      photoMatch: { brand: 'polygon', model: 'collosus' }, photoQueries: ['Polygon Collosus DH', 'Polygon downhill bike'] },
+      desc: 'Доступный DH-двухподвес из Индонезии: 200 мм хода, чтобы начать спуски.', },
     { id: 'supreme', brand: 'Commencal', model: 'Supreme DH V5', tier: 2, price: 2600, color: '#c3c8cd', accent: '#1b6bd8', decal: '#1b6bd8',
       dhStats: { speed: 60, brakes: 62, handling: 62, suspension: 66, stability: 64, jump: 60 },
-      desc: 'Французская DH-классика с высокой осью задней подвески: прёт через корни и камни.',
-      photoMatch: { brand: 'commencal', model: 'supreme' }, photoQueries: ['Commencal Supreme DH', 'Commencal downhill'] },
+      desc: 'Французская DH-классика с высокой осью задней подвески: прёт через корни и камни.', },
     { id: 'tues', brand: 'YT', model: 'Tues', tier: 2, price: 3400, color: '#2a2a2c', accent: '#ff6a00', decal: '#ff6a00',
       dhStats: { speed: 63, brakes: 64, handling: 70, suspension: 68, stability: 60, jump: 74 },
-      desc: 'Игривый немецкий DH: лучший в прыжках и на городских трамплинах.',
-      photoMatch: { brand: '\\byt\\b|young talent', model: 'tues' }, photoQueries: ['YT Tues', 'YT Industries Tues'] },
+      desc: 'Игривый немецкий DH: лучший в прыжках и на городских трамплинах.', },
     { id: 'sender', brand: 'Canyon', model: 'Sender CFR', tier: 3, price: 4600, color: '#1d2b23', accent: '#9ad13a', decal: '#9ad13a',
       dhStats: { speed: 72, brakes: 70, handling: 68, suspension: 74, stability: 75, jump: 66 },
-      desc: 'Карбоновый DH Кубка мира: регулируемая геометрия, стабилен на огромной скорости.',
-      photoMatch: { brand: 'canyon', model: 'sender' }, photoQueries: ['Canyon Sender', 'Canyon downhill bike'] },
+      desc: 'Карбоновый DH Кубка мира: регулируемая геометрия, стабилен на огромной скорости.', },
     { id: 'session', brand: 'Trek', model: 'Session 9.9', tier: 4, price: 5800, color: '#3a1a5c', accent: '#ff3366', decal: '#ffffff',
       dhStats: { speed: 76, brakes: 76, handling: 75, suspension: 82, stability: 77, jump: 72 },
-      desc: 'Подвеска ABP не «затвердевает» при торможении — лучшая работа на камнях.',
-      photoMatch: { brand: 'trek', model: 'session' }, photoQueries: ['Trek Session downhill', 'Trek Session'] },
+      desc: 'Подвеска ABP не «затвердевает» при торможении — лучшая работа на камнях.', },
     { id: 'demo', brand: 'Specialized', model: 'Demo Race', tier: 4, price: 7200, color: '#101012', accent: '#e5332a', decal: '#e5332a',
       dhStats: { speed: 81, brakes: 80, handling: 72, suspension: 80, stability: 85, jump: 70 },
-      desc: 'Низкий и длинный: невероятно устойчив на скоростных альпийских трассах.',
-      photoMatch: { brand: 'specialized|demo', model: 'demo' }, photoQueries: ['Specialized Demo', 'Specialized Demo Race'] },
+      desc: 'Низкий и длинный: невероятно устойчив на скоростных альпийских трассах.', },
     { id: 'v10', brand: 'Santa Cruz', model: 'V10', tier: 5, price: 9500, color: '#2b61c9', accent: '#f5d10a', decal: '#f5d10a',
       dhStats: { speed: 87, brakes: 85, handling: 83, suspension: 90, stability: 87, jump: 80 },
-      desc: 'Легенда с подвеской VPP: чемпионские титулы Кубка мира. Лучший DH в игре.',
-      photoMatch: { brand: 'santa cruz', model: 'v10' }, photoQueries: ['Santa Cruz V10', 'Santa Cruz downhill'] },
+      desc: 'Легенда с подвеской VPP: чемпионские титулы Кубка мира. Лучший DH в игре.', },
   ];
   DH_BIKES.forEach((b) => {
     Object.assign(b, { type: 'dh', dh: true, sizes: ['dh'], stockWheel: 'assegai', look: { rims: 'alu' }, name: `${b.brand} ${b.model}` });
