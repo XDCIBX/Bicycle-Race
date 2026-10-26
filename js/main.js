@@ -17,56 +17,43 @@
   let raf = 0;
   let miniMap = null;
 
-  // ── Управление ────────────────────────────────────────────
-  const keys = {};
-  const touch = { left: false, right: false, up: false, brake: false, sprint: false };
-  const KEYMAP = {
-    ArrowUp: 'up', KeyW: 'up', ArrowDown: 'brake', KeyS: 'brake', Space: 'brake',
-    ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
-    ShiftLeft: 'sprint', ShiftRight: 'sprint',
-  };
+  // ── Управление ────────────────────────────────────────
+  // Велосипед едет сам. Игрок может только скомандовать спурт и ускорить время.
+  let timeScale = 1;
   window.addEventListener('keydown', (e) => {
     if (!race) return;
-    if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
+    if (e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') { e.preventDefault(); sprint(); }
     if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
-    if (e.code === 'KeyR' && !paused) respawn();
+    if (e.code === 'KeyF') cycleSpeed();
   });
-  window.addEventListener('keyup', (e) => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
-  window.addEventListener('blur', () => { Object.keys(keys).forEach((k) => { keys[k] = false; }); });
-  document.querySelectorAll('#touch button').forEach((b) => {
-    const k = b.dataset.k;
-    const on = (e) => { e.preventDefault(); touch[k] = true; b.classList.add('on'); };
-    const off = (e) => { e.preventDefault(); touch[k] = false; b.classList.remove('on'); };
-    b.addEventListener('pointerdown', on);
-    b.addEventListener('pointerup', off);
-    b.addEventListener('pointercancel', off);
-    b.addEventListener('pointerleave', off);
-  });
-  function readInput() {
-    const k = (n) => keys[n] || touch[n];
-    return {
-      throttle: !!k('up') && !k('brake'),
-      brake: !!k('brake'),
-      steer: (k('right') ? 1 : 0) - (k('left') ? 1 : 0),
-      sprint: !!k('sprint'),
-    };
+  function sprint() {
+    if (!race || paused) return;
+    if (race.sprintNow()) {
+      const b = $('btn-sprint');
+      b.classList.add('on');
+      setTimeout(() => b.classList.remove('on'), 600);
+      if (navigator.vibrate) navigator.vibrate(30);
+    }
   }
-
-  function respawn() {
-    if (!race || race.state !== 'racing') return;
-    const r = race.player;
-    const p = race.track.samples[r.idx];
-    r.x = p.x; r.y = p.y; r.heading = p.ang; r.v = Math.min(r.v, 4); r.wrongWay = 0;
+  function cycleSpeed() {
+    timeScale = timeScale === 1 ? 2 : timeScale === 2 ? 4 : 1;
+    $('btn-speed').textContent = `×${timeScale}`;
   }
+  $('btn-sprint').addEventListener('pointerdown', (e) => { e.preventDefault(); sprint(); });
+  $('btn-speed').addEventListener('click', cycleSpeed);
 
   // ── Запуск гонки ──────────────────────────────────────────
   let lastTrack = null;
   function startRace(trackId) {
     lastTrack = trackId;
     const o = state.owned[state.active];
+    const skills = state.rider.skills;
     race = new window.RaceEngine.Race(trackId, {
-      bikeId: state.active, wheel: o.wheel, stats: GS.effectiveStats(state.active, o.upgrades, o.wheel),
+      bikeId: state.active, wheel: o.wheel, stats: GS.effectiveStats(state.active, o.upgrades, o.wheel, skills),
+      profile: GS.riderProfile(skills), tactic: state.tactic, name: state.rider.name || 'Вы',
     });
+    timeScale = 1;
+    $('btn-speed').textContent = '×1';
     view.hidden = false;
     $('results').hidden = true;
     $('pause').hidden = true;
@@ -75,8 +62,6 @@
     renderer.resize();
     buildMiniMap();
     $('hud-total').textContent = race.riders.length;
-    $('hud-keys').style.opacity = 1;
-    setTimeout(() => { $('hud-keys').style.opacity = 0; }, 7000);
     lastT = performance.now();
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(loop);
@@ -137,13 +122,15 @@
     setText('hud-lap', `Круг ${Math.min(race.laps, Math.max(1, p.lap + 1))}/${race.laps}`);
     setText('hud-time', window.UI.fmtTime(race.time));
     setText('hud-speed', String(Math.round(P.kmh(p.v))));
-    $('hud-energy').style.width = p.energy + '%';
+    $('hud-energy').style.width = (p.energy / p.profile.energyMax * 100) + '%';
+    const tac = D.TACTICS.find((t) => t.id === p.tactic);
+    setText('hud-tactic', `${tac.icon} ${tac.name}${p.drafting ? ' · на колесе' : ''}${p.sprinting ? ' · СПУРТ!' : ''}`);
+    $('btn-sprint').disabled = p.energy < p.profile.energyMax * 0.08 || race.state !== 'racing' || p.finished;
     const surf = D.SURFACES[p.surface];
     setText('hud-surf', p.onRoad ? surf.name : `Вне трассы (${surf.name.toLowerCase()})`);
     $('hud-surf-dot').style.background = surf.color;
     const slope = race.track.samples[p.idx].slope * Math.cos(p.heading - race.track.samples[p.idx].ang);
     setText('hud-slope', Math.abs(slope) > 0.02 ? ` ${slope > 0 ? '↗' : '↘'} ${Math.round(Math.abs(slope) * 100)}%` : '');
-    $('hud-warn').hidden = !(p.wrongWay > 1.2);
 
     let center = '';
     if (race.state === 'countdown') center = race.countdown > 3 ? 'Приготовьтесь' : String(Math.ceil(race.countdown));
@@ -175,7 +162,10 @@
     if (!race) return;
     const dt = Math.min(0.05, (t - lastT) / 1000);
     lastT = t;
-    if (!paused && race.state !== 'done') race.update(dt, readInput());
+    if (!paused && race.state !== 'done') {
+      // При ускорении времени делаем несколько шагов, чтобы физика оставалась точной.
+      for (let k = 0; k < timeScale && race.state !== 'done'; k++) race.update(dt);
+    }
     renderer.render(race);
     drawMiniMap();
     updateHud();

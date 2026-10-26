@@ -1,4 +1,4 @@
-// Сохранение прогресса и расчёт итоговых характеристик велосипеда.
+// Сохранение прогресса, итоговые характеристики велосипеда и гонщика.
 (function () {
   'use strict';
   const D = window.GameData;
@@ -10,10 +10,18 @@
     return u;
   }
 
+  function emptySkills() {
+    const r = {};
+    D.RIDER_SKILLS.forEach((k) => { r[k.id] = 0; });
+    return r;
+  }
+
   function newGame() {
     const s = {
       money: D.START_MONEY,
-      active: 'stels',
+      active: 'rockrider',
+      rider: { name: 'Вы', skills: emptySkills() },
+      tactic: 'steady',
       owned: {},
       wheels: [],
       best: {},
@@ -21,7 +29,7 @@
       races: 0,
       wins: 0,
     };
-    grantBike(s, 'stels');
+    grantBike(s, 'rockrider');
     return s;
   }
 
@@ -36,11 +44,17 @@
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const s = Object.assign(newGame(), JSON.parse(raw));
+        // Миграция: стартовый Stels заменён на Rockrider ST 100.
+        if (s.owned.stels) { s.owned.rockrider = s.owned.rockrider || s.owned.stels; delete s.owned.stels; }
+        if (s.active === 'stels') s.active = 'rockrider';
         // Защита от устаревших/битых сохранений.
         Object.keys(s.owned).forEach((id) => { if (!D.bikeById(id)) delete s.owned[id]; });
-        if (!s.owned[s.active]) s.active = Object.keys(s.owned)[0] || 'stels';
-        if (!s.owned.stels && Object.keys(s.owned).length === 0) grantBike(s, 'stels');
+        if (Object.keys(s.owned).length === 0) grantBike(s, 'rockrider');
+        if (!s.owned[s.active]) s.active = Object.keys(s.owned)[0];
         Object.values(s.owned).forEach((o) => { o.upgrades = Object.assign(emptyUpgrades(), o.upgrades); });
+        s.rider = Object.assign({ name: 'Вы' }, s.rider);
+        s.rider.skills = Object.assign(emptySkills(), s.rider.skills);
+        if (!D.TACTICS.some((t) => t.id === s.tactic)) s.tactic = 'steady';
         return s;
       }
     } catch (e) { /* хранилище недоступно — начинаем заново */ }
@@ -53,8 +67,8 @@
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-  // Итоговые характеристики = база велосипеда + улучшения + бонусы колёс.
-  function effectiveStats(bikeId, upgrades, wheelId) {
+  // Итоговые характеристики = база велосипеда + улучшения + колёса + тренированность гонщика.
+  function effectiveStats(bikeId, upgrades, wheelId, riderSkills) {
     const bike = D.bikeById(bikeId);
     const out = Object.assign({}, bike.stats);
     D.UPGRADES.forEach((up) => {
@@ -64,7 +78,38 @@
     const wheel = D.WHEELS[wheelId || bike.stockWheel];
     Object.entries(wheel.mods).forEach(([k, v]) => { out[k] += v; });
     D.STAT_KEYS.forEach((k) => { out[k] = clamp(out[k], 1, 100); });
+    if (riderSkills) {
+      D.RIDER_SKILLS.forEach((sk) => {
+        const lvl = riderSkills[sk.id] || 0;
+        Object.entries(sk.mods).forEach(([k, v]) => { out[k] = clamp(out[k] + v * lvl, 1, 120); });
+      });
+    }
     return out;
+  }
+
+  // Параметры гонщика, которые не сводятся к характеристикам велосипеда.
+  function riderProfile(skills) {
+    const sk = skills || {};
+    const lv = (id) => sk[id] || 0;
+    const total = D.RIDER_SKILLS.reduce((a, k) => a + lv(k.id), 0);
+    return {
+      skill: 0.9 + 0.0015 * total,
+      energyMax: 100 + 12 * lv('endurance'),
+      regen: 5 + 0.7 * lv('endurance'),
+      sprintBoost: 1.08 + 0.008 * lv('sprint'),
+      draft: 0.03 + 0.004 * lv('tactics'),
+      corner: 0.93 + 0.004 * lv('technique') + 0.002 * lv('tactics'),
+      tactics: lv('tactics'),
+    };
+  }
+
+  function riderLevel(skills) {
+    return 1 + Math.floor(D.RIDER_SKILLS.reduce((a, k) => a + (skills[k.id] || 0), 0) / 3);
+  }
+
+  function trainingPrice(skillId, level) {
+    const sk = D.RIDER_SKILLS.find((k) => k.id === skillId);
+    return Math.round(sk.base * Math.pow(level + 1, 1.5) / 10) * 10;
   }
 
   function upgradePrice(bikeId, upId, level) {
@@ -102,5 +147,8 @@
     kmh(v) { return v * 2.25; },
   };
 
-  window.GameState = { load, save, newGame, grantBike, effectiveStats, upgradePrice, wheelFits, Physics, clamp };
+  window.GameState = {
+    load, save, newGame, grantBike, effectiveStats, upgradePrice, wheelFits, Physics, clamp,
+    riderProfile, riderLevel, trainingPrice,
+  };
 })();

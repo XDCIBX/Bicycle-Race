@@ -1,0 +1,22 @@
+{
+  "name": "velo-rush",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Velo Rush 2.5D — велогонка: веб-версия, PWA для iPhone и iOS-приложение на Capacitor",
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build-www.mjs",
+    "serve": "python3 -m http.server 8000",
+    "photos": "node tools/fetch-photos.mjs",
+    "ios:add": "npm run build && npx cap add ios",
+    "ios:sync": "npm run build && npx cap sync ios",
+    "ios:open": "npx cap open ios"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0"
+  }
+}

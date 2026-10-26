@@ -80,7 +80,7 @@
     },
     // ── МТБ 26/27.5/29 ─────────────────────────────────────────────
     krad: {
-      name: 'Kenda K-Rad 26×2.1"', size: 'mtb', price: 150,
+      name: 'Kenda K-Rad 27.5×2.1"', size: 'mtb', price: 150,
       desc: 'Бюджетная покрышка «на всё». Ничем не блещет, но и не подводит.',
       roll: { asphalt: 0.82, cobble: 0.84, gravel: 0.84, dirt: 0.86, sand: 0.58, snow: 0.52, grass: 0.72 },
       grip: { asphalt: 0.85, cobble: 0.85, gravel: 0.84, dirt: 0.86, sand: 0.6, snow: 0.48, grass: 0.75 },
@@ -160,109 +160,182 @@
 
   const BIKE_TYPES = {
     road: 'Шоссейный', aero: 'Аэро-шоссейный', tt: 'Разделочный (TT)', gravel: 'Гревел', hybrid: 'Фитнес/гибрид',
-    mtb: 'Горный хардтейл', enduro: 'Двухподвес', fat: 'Фэтбайк', bmx: 'BMX', folding: 'Складной',
+    mtb: 'Горный хардтейл', enduro: 'Эндуро-двухподвес', xc: 'XC-двухподвес', fat: 'Фэтбайк', bmx: 'BMX', folding: 'Складной',
   };
 
+  // Только реальные бренды и модели. brand/model — для подписи и декалей на раме,
+  // look — внешний вид для реалистичной отрисовки (цвета, обода, борт покрышки).
   // photoQueries — поисковые запросы для Wikimedia Commons (от точного к общему).
   const BIKES = [
     {
-      id: 'stels', name: 'Stels Navigator 600 MD', type: 'mtb', tier: 1, price: 0, color: '#2f7de1',
+      id: 'rockrider', brand: 'Rockrider', model: 'ST 100', maker: 'Decathlon', type: 'mtb', tier: 1, price: 0,
+      color: '#3b4a5a', accent: '#f39200', decal: '#ffffff', look: { rims: 'alu' },
       stats: { speed: 38, accel: 42, handling: 45, brakes: 45, climb: 35, offroad: 50 },
       sizes: ['mtb'], stockWheel: 'krad',
-      desc: 'Стартовый народный хардтейл на 26" колёсах. Тяжеловат, зато едет везде понемногу.',
-      photoQueries: ['Stels Navigator bicycle', 'Stels bicycle', 'hardtail mountain bike 26'],
+      desc: 'Самый продаваемый хардтейл Европы от Decathlon. Тяжеловат, зато едет везде понемногу.',
+      photoQueries: ['Rockrider ST 100', 'Rockrider bicycle', 'Decathlon Rockrider', 'hardtail mountain bike'],
     },
     {
-      id: 'mongoose', name: 'Mongoose Legion L100', type: 'bmx', tier: 1, price: 700, color: '#e23b3b',
+      id: 'mongoose', brand: 'Mongoose', model: 'Legion L100', type: 'bmx', tier: 1, price: 700,
+      color: '#d62828', accent: '#111111', decal: '#ffffff', look: { rims: 'alu' },
       stats: { speed: 30, accel: 80, handling: 86, brakes: 58, climb: 42, offroad: 42 },
       sizes: ['bmx'], stockWheel: 'grifter',
       desc: 'Хромолевый BMX: взрывной старт и мгновенная реакция на руль. Но потолок скорости низкий.',
-      photoQueries: ['Mongoose BMX bicycle', 'Mongoose Legion', 'BMX bicycle'],
+      photoQueries: ['Mongoose Legion BMX', 'Mongoose BMX bicycle', 'BMX bicycle'],
     },
     {
-      id: 'brompton', name: 'Brompton C Line Explore', type: 'folding', tier: 1, price: 1100, color: '#f2a516',
+      id: 'brompton', brand: 'Brompton', model: 'C Line Explore', type: 'folding', tier: 1, price: 1100,
+      color: '#f2a516', accent: '#1d1d1d', decal: '#1d1d1d', look: { rims: 'alu' },
       stats: { speed: 40, accel: 66, handling: 82, brakes: 55, climb: 45, offroad: 18 },
       sizes: ['folding'], stockWheel: 'marathon16',
       desc: 'Британская складушка на 16" колёсах. Узкие улицы и шпильки критериума — её стихия.',
       photoQueries: ['Brompton bicycle', 'Brompton folding bike', 'folding bicycle 16 inch'],
     },
     {
-      id: 'trekfx', name: 'Trek FX 3 Disc', type: 'hybrid', tier: 2, price: 1500, color: '#7a8a99',
+      id: 'trekfx', brand: 'Trek', model: 'FX 3 Disc', type: 'hybrid', tier: 2, price: 1500,
+      color: '#5d6873', accent: '#c7d0d8', decal: '#ffffff', look: { rims: 'alu', gumwall: false },
       stats: { speed: 55, accel: 56, handling: 60, brakes: 70, climb: 55, offroad: 34 },
       sizes: ['road', 'gravel'], stockWheel: 'gravelking',
       desc: 'Фитнес-гибрид с карбоновой вилкой и дисковыми тормозами. Сбалансирован во всём.',
-      photoQueries: ['Trek FX bicycle', 'Trek FX 3', 'hybrid bicycle'],
+      photoQueries: ['Trek FX bicycle', 'Trek FX 3', 'Trek hybrid bicycle'],
     },
     {
-      id: 'marlin', name: 'Trek Marlin 7', type: 'mtb', tier: 2, price: 1800, color: '#1aa37a',
+      id: 'marlin', brand: 'Trek', model: 'Marlin 7', type: 'mtb', tier: 2, price: 1800,
+      color: '#0f7a5c', accent: '#d9e021', decal: '#ffffff', look: { rims: 'alu' },
       stats: { speed: 46, accel: 56, handling: 63, brakes: 72, climb: 52, offroad: 72 },
       sizes: ['mtb'], stockWheel: 'ikon',
       desc: 'Хардтейл для кросс-кантри: вилка RockShox, гидравлика, уверенность на грунте.',
-      photoQueries: ['Trek Marlin', 'Trek mountain bike', 'hardtail mountain bike'],
+      photoQueries: ['Trek Marlin', 'Trek Marlin 7', 'Trek mountain bike'],
     },
     {
-      id: 'pugsley', name: 'Surly Pugsley', type: 'fat', tier: 2, price: 2400, color: '#5b3fa8',
+      id: 'pugsley', brand: 'Surly', model: 'Pugsley', type: 'fat', tier: 2, price: 2400,
+      color: '#5b3fa8', accent: '#e0e0e0', decal: '#ffffff', look: { rims: 'alu' },
       stats: { speed: 32, accel: 40, handling: 50, brakes: 66, climb: 36, offroad: 88 },
       sizes: ['fat'], stockWheel: 'nate',
       desc: 'Прародитель фэтбайков. Четырёхдюймовые покрышки не тонут ни в песке, ни в снегу.',
       photoQueries: ['Surly Pugsley', 'Surly fat bike', 'fatbike'],
     },
     {
-      id: 'topstone', name: 'Cannondale Topstone Carbon', type: 'gravel', tier: 3, price: 3200, color: '#3ba55c',
+      id: 'topstone', brand: 'Cannondale', model: 'Topstone Carbon', type: 'gravel', tier: 3, price: 3200,
+      color: '#4d7c3a', accent: '#e8e2c8', decal: '#ffffff', look: { rims: 'carbon30', gumwall: true },
       stats: { speed: 64, accel: 61, handling: 65, brakes: 76, climb: 65, offroad: 62 },
       sizes: ['gravel', 'road'], stockWheel: 'gone',
       desc: 'Гревел с «кингпин»-подвеской заднего треугольника. Король смешанных трасс.',
       photoQueries: ['Cannondale Topstone', 'Cannondale gravel bike', 'gravel bike'],
     },
     {
-      id: 'tcr', name: 'Giant TCR Advanced Pro', type: 'road', tier: 3, price: 4200, color: '#1d3f8f',
+      id: 'terra', brand: 'Orbea', model: 'Terra M20', type: 'gravel', tier: 3, price: 3600,
+      color: '#b5532d', accent: '#2a2a2a', decal: '#f3efe6', look: { rims: 'carbon30', gumwall: true },
+      stats: { speed: 63, accel: 65, handling: 70, brakes: 74, climb: 68, offroad: 65 },
+      sizes: ['gravel', 'road'], stockWheel: 'riddler',
+      desc: 'Баскский карбоновый гревел: лёгкий, юркий, с агрессивной резиной из коробки.',
+      photoQueries: ['Orbea Terra', 'Orbea gravel bicycle', 'Orbea bicycle'],
+    },
+    {
+      id: 'tcr', brand: 'Giant', model: 'TCR Advanced Pro', type: 'road', tier: 3, price: 4200,
+      color: '#1d3f8f', accent: '#7fd3ff', decal: '#ffffff', look: { rims: 'carbon30' },
       stats: { speed: 74, accel: 73, handling: 71, brakes: 70, climb: 84, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Лёгкая карбоновая рама с компактной геометрией. Горы — его конёк.',
       photoQueries: ['Giant TCR Advanced', 'Giant TCR', 'Giant road bicycle'],
     },
     {
-      id: 'stumpjumper', name: 'Specialized Stumpjumper EVO', type: 'enduro', tier: 4, price: 5200, color: '#c0392b',
+      id: 'stumpjumper', brand: 'Specialized', model: 'Stumpjumper EVO', type: 'enduro', tier: 4, price: 5200,
+      color: '#8e1b1b', accent: '#f2c230', decal: '#ffffff', look: { rims: 'alu' },
       stats: { speed: 50, accel: 58, handling: 78, brakes: 90, climb: 56, offroad: 97 },
       sizes: ['mtb'], stockWheel: 'minion',
       desc: 'Двухподвес с ходом 150 мм. Корни и камни для него как асфальт, но на шоссе — тягач.',
-      photoQueries: ['Specialized Stumpjumper', 'Specialized mountain bike', 'full suspension mountain bike'],
+      photoQueries: ['Specialized Stumpjumper', 'Specialized Stumpjumper EVO', 'full suspension mountain bike'],
     },
     {
-      id: 'diverge', name: 'Specialized Diverge STR', type: 'gravel', tier: 4, price: 6000, color: '#b8862b',
+      id: 'spark', brand: 'Scott', model: 'Spark RC World Cup', type: 'xc', tier: 4, price: 5900,
+      color: '#e6e6e6', accent: '#d7192c', decal: '#111111', look: { rims: 'carbon30' },
+      stats: { speed: 60, accel: 72, handling: 80, brakes: 84, climb: 76, offroad: 90 },
+      sizes: ['mtb'], stockWheel: 'ikon',
+      desc: 'Кросс-кантрийный двухподвес чемпионов мира: амортизатор спрятан в раме, вес под 10 кг.',
+      photoQueries: ['Scott Spark RC', 'Scott Spark', 'Scott mountain bike'],
+    },
+    {
+      id: 'diverge', brand: 'Specialized', model: 'Diverge STR', type: 'gravel', tier: 4, price: 6000,
+      color: '#9a7b3a', accent: '#1e1e1e', decal: '#ffffff', look: { rims: 'carbon30', gumwall: true },
       stats: { speed: 69, accel: 65, handling: 71, brakes: 80, climb: 67, offroad: 74 },
       sizes: ['gravel', 'road'], stockWheel: 'gone',
       desc: 'Гревел с подвеской Future Shock и подвесным подседельным узлом. Комфорт на любой «гребёнке».',
       photoQueries: ['Specialized Diverge', 'Specialized gravel bike', 'gravel bicycle'],
     },
     {
-      id: 'aeroad', name: 'Canyon Aeroad CFR', type: 'aero', tier: 4, price: 7500, color: '#20232a',
+      id: 'aeroad', brand: 'Canyon', model: 'Aeroad CFR', type: 'aero', tier: 4, price: 7500,
+      color: '#1f2226', accent: '#e5e5e5', decal: '#e5e5e5', look: { rims: 'carbon50' },
       stats: { speed: 89, accel: 75, handling: 63, brakes: 72, climb: 70, offroad: 10 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Аэродинамика из аэротрубы: на прямых недосягаем, в поворотах требует аккуратности.',
-      photoQueries: ['Canyon Aeroad', 'Canyon road bike', 'aero road bicycle'],
+      photoQueries: ['Canyon Aeroad', 'Canyon Aeroad CFR', 'Canyon road bike'],
     },
     {
-      id: 'p5', name: 'Cervélo P5', type: 'tt', tier: 5, price: 9000, color: '#e8e8e8',
+      id: 'p5', brand: 'Cervélo', model: 'P5', type: 'tt', tier: 5, price: 9000,
+      color: '#f1f1f1', accent: '#c8102e', decal: '#111111', look: { rims: 'disc' },
       stats: { speed: 98, accel: 66, handling: 38, brakes: 62, climb: 60, offroad: 5 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Разделочник для триатлона. Максимальная скорость в игре, но поворачивает как баржа.',
-      photoQueries: ['Cervelo P5', 'Cervélo P5', 'time trial bicycle'],
+      photoQueries: ['Cervelo P5', 'Cervélo P5', 'Cervelo time trial bicycle'],
     },
     {
-      id: 'tarmac', name: 'Specialized S-Works Tarmac SL8', type: 'road', tier: 5, price: 11000, color: '#9b1c2c',
+      id: 'oltre', brand: 'Bianchi', model: 'Oltre RC', type: 'aero', tier: 5, price: 10000,
+      color: '#58c4b5', accent: '#111111', decal: '#111111', look: { rims: 'carbon50' },
+      stats: { speed: 93, accel: 79, handling: 69, brakes: 76, climb: 74, offroad: 10 },
+      sizes: ['road'], stockWheel: 'gp5000',
+      desc: 'Старейший велобренд мира в фирменном цвете «челесте». Аэро-болид с «крыльями» на руле.',
+      photoQueries: ['Bianchi Oltre', 'Bianchi Oltre RC', 'Bianchi road bicycle celeste'],
+    },
+    {
+      id: 'tarmac', brand: 'Specialized', model: 'S-Works Tarmac SL8', type: 'road', tier: 5, price: 11000,
+      color: '#7c1424', accent: '#f0f0f0', decal: '#f0f0f0', look: { rims: 'carbon50' },
       stats: { speed: 87, accel: 87, handling: 80, brakes: 80, climb: 91, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Гоночный болид пелотона: лёгкий, жёсткий и быстрый. Победитель Гранд-туров.',
       photoQueries: ['Specialized Tarmac SL8', 'Specialized Tarmac', 'S-Works Tarmac'],
     },
     {
-      id: 'dogma', name: 'Pinarello Dogma F', type: 'road', tier: 5, price: 14000, color: '#0b7fa8',
+      id: 'colnago', brand: 'Colnago', model: 'V4Rs', type: 'road', tier: 5, price: 12500,
+      color: '#16181d', accent: '#e4002b', decal: '#ffffff', look: { rims: 'carbon50' },
+      stats: { speed: 89, accel: 88, handling: 84, brakes: 82, climb: 90, offroad: 14 },
+      sizes: ['road'], stockWheel: 'gp5000',
+      desc: 'Велосипед Тадея Погачара: победы в Туре де Франс и чемпионате мира.',
+      photoQueries: ['Colnago V4Rs', 'Colnago V4', 'Colnago bicycle'],
+    },
+    {
+      id: 'dogma', brand: 'Pinarello', model: 'Dogma F', type: 'road', tier: 5, price: 14000,
+      color: '#0d2c54', accent: '#3fa9f5', decal: '#ffffff', look: { rims: 'carbon50' },
       stats: { speed: 91, accel: 85, handling: 87, brakes: 82, climb: 88, offroad: 14 },
       sizes: ['road'], stockWheel: 'gp5000',
       desc: 'Итальянская легенда с асимметричной рамой. Лучший баланс скорости и управляемости.',
       photoQueries: ['Pinarello Dogma F', 'Pinarello Dogma', 'Pinarello bicycle'],
     },
+  ];
+  BIKES.forEach((b) => { b.name = `${b.brand} ${b.model}`; });
+
+  // Тренировки гонщика: каждая ветка — до 10 уровней.
+  const RIDER_SKILLS = [
+    { id: 'power', name: 'Мощность', icon: '💪', training: 'Интервалы на велостанке', mods: { speed: 2, accel: 2 }, base: 120,
+      effect: 'Скорость +2, разгон +2 за уровень' },
+    { id: 'endurance', name: 'Выносливость', icon: '❤️', training: 'Длинная базовая поездка, 4 часа', mods: {}, base: 100,
+      effect: 'Запас энергии +12, восстановление быстрее' },
+    { id: 'climbing', name: 'Горы', icon: '⛰️', training: 'Повторы в подъём 8%', mods: { climb: 3 }, base: 110,
+      effect: 'Подъёмы +3 за уровень' },
+    { id: 'technique', name: 'Техника', icon: '🎯', training: 'Скиллс-парк и спуски', mods: { handling: 3, offroad: 2, brakes: 1 }, base: 110,
+      effect: 'Управляемость +3, бездорожье +2, тормоза +1; смелее в поворотах' },
+    { id: 'sprint', name: 'Спринт', icon: '⚡', training: 'Спринты с хода за мотоциклом', mods: {}, base: 100,
+      effect: 'Рывок мощнее: +0.8% к скорости спурта за уровень' },
+    { id: 'tactics', name: 'Тактика', icon: '🧠', training: 'Разбор гонок с тренером', mods: {}, base: 90,
+      effect: 'Больше пользы от «сидения на колесе», точнее выбор момента атаки' },
+  ];
+  const RIDER_MAX = 10;
+
+  // Тактика на гонку (велосипед едет сам, игрок выбирает план и может нажать «Спурт»).
+  const TACTICS = [
+    { id: 'steady', name: 'Ровный темп', icon: '⚖️', desc: 'Спурты только на длинных прямых, энергия расходуется равномерно.' },
+    { id: 'attack', name: 'Атака со старта', icon: '🔥', desc: 'Сразу уходит вперёд, тратит энергию на первом круге, потом держит отрыв.' },
+    { id: 'final', name: 'Финишный рывок', icon: '🏁', desc: 'Экономит силы на колесе соперников и выкладывается на последних 30% гонки.' },
   ];
 
   const UPGRADES = [
@@ -365,7 +438,7 @@
 
   window.GameData = {
     STAT_KEYS, STAT_NAMES, SURFACES, WHEELS, WHEEL_SIZE_NAMES, BIKE_TYPES, BIKES, UPGRADES, MAX_UPGRADE,
-    TRACKS, ENVIRONMENTS, BOT_NAMES, BOT_COLORS, START_MONEY, PRIZE_SHARE,
+    TRACKS, ENVIRONMENTS, BOT_NAMES, BOT_COLORS, START_MONEY, PRIZE_SHARE, RIDER_SKILLS, RIDER_MAX, TACTICS,
     bikeById: (id) => BIKES.find((b) => b.id === id),
     trackById: (id) => TRACKS.find((t) => t.id === id),
   };

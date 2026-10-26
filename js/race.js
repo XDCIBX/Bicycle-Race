@@ -1,4 +1,5 @@
-// Логика гонки: физика велосипеда, ИИ соперников, круги и позиции.
+// Логика гонки: физика велосипеда, автопилот гонщиков (и игрока, и соперников),
+// тактика и энергия, «сидение на колесе», круги и позиции.
 (function () {
   'use strict';
   const D = window.GameData;
@@ -39,15 +40,22 @@
       chosen.push(src[Math.floor(rnd() * src.length)]);
     }
     const names = D.BOT_NAMES.slice().sort(() => rnd() - 0.5);
-    return chosen.map((c, i) => ({
+    return chosen.map((c, i) => {
+      const lvl = Math.min(D.RIDER_MAX, (t - 1) * 2);
+      const profile = GS.riderProfile({ endurance: lvl, sprint: lvl, tactics: lvl, technique: lvl });
+      profile.corner = 0.95 + t * 0.004;
+      return {
       name: names[i],
       bikeId: c.bike.id,
       wheel: c.wheel,
       stats: c.stats,
+      profile,
+      tactic: D.TACTICS[Math.floor(rnd() * D.TACTICS.length)].id,
       skill: clamp(BOT_SKILL[t - 1] + rnd() * 0.04 - (i === count - 1 ? 0.04 : 0), 0.75, 0.99),
       jersey: D.BOT_COLORS[(i + 1) % D.BOT_COLORS.length],
       helmet: ['#ffffff', '#111111', '#e0e0e0'][i % 3],
-    }));
+      };
+    });
   }
 
   class Race {
@@ -68,7 +76,7 @@
       const entries = bots.map((b) => Object.assign({ isPlayer: false }, b));
       if (player) {
         entries.splice(Math.min(entries.length, 3 + Math.floor(this.rnd() * 2)), 0, Object.assign({
-          isPlayer: true, name: 'Вы', skill: 1, jersey: '#ff2d55', helmet: '#ffd400',
+          isPlayer: true, name: 'Вы', jersey: '#ff2d55', helmet: '#ffd400', tactic: 'steady',
         }, player));
       }
       const T = this.track;
@@ -80,20 +88,35 @@
         return Object.assign(e, {
           x: p.x + p.nx * lat, y: p.y + p.ny * lat, z: p.z, heading: p.ang, v: 0,
           idx: -1, lat, s, lap: -1, prevS: s, steer: 0, lean: 0, pedal: this.rnd() * 6,
-          energy: 100, finished: false, finishTime: 0, place: i + 1,
+          finished: false, finishTime: 0, place: i + 1, manualSprint: 0, drafting: false,
           input: { throttle: false, brake: false, steer: 0, sprint: false },
           lane: (this.rnd() - 0.5) * 0.8, laneT: 0, surface: p.surface, onRoad: true,
           wrongWay: 0, skid: 0, lastLapStart: 0, bestLap: 0,
         });
       });
-      this.riders.forEach((r) => { const l = T.locate(r.x, r.y, null); r.idx = l.idx; });
+      this.riders.forEach((r) => {
+        const l = T.locate(r.x, r.y, null);
+        r.idx = l.idx;
+        if (!r.profile) r.profile = GS.riderProfile(null);
+        if (r.skill == null) r.skill = r.profile.skill;
+        r.energy = r.profile.energyMax;
+      });
       this.player = this.riders.find((r) => r.isPlayer) || this.riders[0];
       this.focus = this.player;
     }
 
     progress(r) { return r.lap * this.track.L + r.s; }
+    fraction(r) { return clamp(this.progress(r) / (this.laps * this.track.L), 0, 1); }
 
-    update(dt, input) {
+    // Ручной спурт игрока: велосипед едет сам, но рывок можно скомандовать.
+    sprintNow() {
+      const p = this.player;
+      if (this.state !== 'racing' || p.finished || p.energy < p.profile.energyMax * 0.08) return false;
+      p.manualSprint = 4;
+      return true;
+    }
+
+    update(dt) {
       this.dt = dt;
       if (this.state === 'countdown') {
         this.countdown -= dt;
@@ -105,8 +128,7 @@
       const h = dt / sub;
       for (let k = 0; k < sub; k++) {
         for (const r of this.riders) {
-          if (r.isPlayer && !r.finished && input) Object.assign(r.input, input);
-          else this.ai(r);
+          this.ai(r, h);
           this.step(r, h);
         }
         this.collide();
@@ -130,7 +152,7 @@
     }
 
     // ИИ: следуем гоночной линии и тормозим перед поворотами.
-    ai(r) {
+    ai(r, dt) {
       const T = this.track;
       const inp = r.input;
       if (this.state === 'countdown') { inp.throttle = false; inp.brake = false; inp.steer = 0; return; }
@@ -139,10 +161,18 @@
       const ahead = T.sampleAt(r.s + 18);
       let lane = r.lane * T.hw;
       if (ahead.curvMax > 0.015) lane = ahead.turn * T.hw * 0.45 * Math.min(1, ahead.curvMax * 25) + lane * 0.3;
+      // Соперник впереди: либо садимся ему «на колесо», либо обгоняем.
+      const wantsDraft = !r.sprinting && r.tactic !== 'attack' && r.energy < r.profile.energyMax * 0.95;
+      let tooClose = false;
       for (const o of this.riders) {
         if (o === r) continue;
         const ds = ((o.s - r.s + T.L * 1.5) % T.L) - T.L / 2;
-        if (ds > 0 && ds < 9 && Math.abs(o.lat - r.lat) < 1.6) lane = o.lat + (o.lat > 0 ? -2.2 : 2.2);
+        if (ds > 0 && ds < 9 && Math.abs(o.lat - r.lat) < 1.6) {
+          if (wantsDraft && o.v > r.v * 0.85 && ahead.curvMax < 0.015) {
+            lane = o.lat;
+            if (ds < 2.6) tooClose = true;
+          } else lane = o.lat + (o.lat > 0 ? -2.2 : 2.2);
+        }
       }
       lane = clamp(lane, -T.hw + 1, T.hw - 1);
       r.laneT += (lane - r.laneT) * 0.02;
@@ -160,7 +190,7 @@
         const p = T.sampleAt(r.s + d);
         if (p.curvMax < 0.004) continue;
         const g = P.surfaceGrip(st, r.wheel, p.surface);
-        const vc = Math.sqrt(P.latGrip(st) * g / p.curvMax) * 0.97;
+        const vc = Math.sqrt(P.latGrip(st) * g / p.curvMax) * r.profile.corner;
         if (r.v > vc) {
           const need = (r.v * r.v - vc * vc) / (2 * brake);
           if (need >= d - 2) { mustBrake = true; break; }
@@ -168,9 +198,32 @@
         }
       }
       inp.brake = mustBrake;
-      inp.throttle = !mustBrake && !coast;
+      inp.throttle = !mustBrake && !coast && !(tooClose && r.v > 6);
+      inp.sprint = inp.throttle && this.wantsSprint(r);
+      if (r.manualSprint > 0) {
+        r.manualSprint -= dt;
+        if (!mustBrake) { inp.throttle = true; inp.sprint = true; }
+      }
+    }
+
+    // Когда спуртовать — зависит от выбранной тактики и опыта гонщика.
+    wantsSprint(r) {
+      const T = this.track;
+      const e = r.energy / r.profile.energyMax;
+      const frac = this.fraction(r);
       const straight = T.sampleAt(r.s + 40).curvMax < 0.01 && r.surface === T.sampleAt(r.s + 40).surface;
-      inp.sprint = inp.throttle && straight && r.energy > (r.sprinting ? 10 : 55);
+      if (frac > 0.93 && e > 0.03) return true; // финишный спринт для всех
+      const keep = r.sprinting ? 0.1 : null;
+      if (r.tactic === 'attack') {
+        if (frac < 0.4) return e > (keep || 0.15);
+        return straight && e > (keep || 0.6);
+      }
+      if (r.tactic === 'final') {
+        const start = 0.7 - r.profile.tactics * 0.01;
+        if (frac > start) return e > (keep ? 0.03 : 0.06);
+        return straight && e > 0.97;
+      }
+      return straight && e > (keep || 0.55);
     }
 
     step(r, dt) {
@@ -195,14 +248,25 @@
       const grip = P.surfaceGrip(st, r.wheel, r.surface) * (onRoad ? 1 : 0.9);
       const surfK = P.surfaceSpeed(st, r.wheel, r.surface) * (onRoad ? 1 : 0.72);
       const slopeDir = p.slope * Math.cos(r.heading - p.ang);
-      r.sprinting = !!(inp.sprint && r.energy > 1 && inp.throttle);
+      r.sprinting = !!(inp.sprint && r.energy > 1 && inp.throttle && !locked);
       let vmax = P.topSpeed(st) * surfK * P.slopeSpeed(st, slopeDir) * (r.skill || 1);
-      if (r.sprinting) vmax *= 1.12;
+      if (r.sprinting) vmax *= r.profile.sprintBoost;
+      // «Сидение на колесе»: соперник прямо впереди снижает сопротивление воздуха.
+      r.drafting = false;
+      if (onRoad && r.v > 6) {
+        for (const o of this.riders) {
+          if (o === r) continue;
+          const ds = ((o.s - r.s + T.L * 1.5) % T.L) - T.L / 2;
+          if (ds > 1.2 && ds < 8 && Math.abs(o.lat - r.lat) < 1.3) { r.drafting = true; break; }
+        }
+      }
+      if (r.drafting) vmax *= 1 + r.profile.draft * (r.surface === 'asphalt' ? 1 : 0.5);
+      if (r.energy < r.profile.energyMax * 0.08) vmax *= 0.96; // усталость
       r.vmax = vmax;
 
       if (!locked) {
         if (inp.throttle && r.v < vmax) {
-          const acc = P.accel(st) * Math.sqrt(surfK) * (r.sprinting ? 1.25 : 1);
+          const acc = P.accel(st) * Math.sqrt(surfK) * (r.sprinting ? 1.25 + r.profile.sprintBoost - 1.08 : 1);
           r.v += acc * (1 - r.v / vmax) * dt * 1.6;
         } else if (!inp.throttle) {
           r.v -= (0.35 + D.SURFACES[r.surface].rough * 2.2) * dt + 4.5 * slopeDir * dt;
@@ -213,8 +277,9 @@
         r.v = Math.max(0, r.v);
       }
       // Энергия для спурта.
-      if (r.sprinting && !locked) r.energy = Math.max(0, r.energy - 20 * dt);
-      else r.energy = Math.min(100, r.energy + (inp.throttle ? 5 : 9) * dt);
+      const pr = r.profile;
+      if (r.sprinting) r.energy = Math.max(0, r.energy - 20 * dt);
+      else r.energy = Math.min(pr.energyMax, r.energy + pr.regen * (inp.throttle ? 1 : 1.8) * (r.drafting ? 1.4 : 1) * dt);
 
       // Руление с ограничением по сцеплению.
       r.steer += (inp.steer - r.steer) * Math.min(1, dt * 9);

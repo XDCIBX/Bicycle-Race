@@ -28,7 +28,8 @@
       this.canvas.width = Math.round(w * dpr);
       this.canvas.height = Math.round(h * dpr);
       this.W = this.canvas.width; this.Hs = this.canvas.height;
-      this.F = Math.min(this.Hs * 1.1, this.W * 0.95);
+      // В портретной ориентации (iPhone) приближаем камеру, чтобы гонщики не были мелкими.
+      this.F = Math.min(this.Hs * 1.1, this.W * (this.Hs > this.W ? 1.45 : 0.95));
       this.cx = this.W / 2; this.cy = this.Hs * 0.64;
       this.dpr = dpr;
     }
@@ -88,7 +89,7 @@
       while (d < -Math.PI) d += 2 * Math.PI;
       c.a += d * Math.min(1, race.dt * 4.5);
       const sp = Math.min(1, t.v / 28);
-      c.B = 15 + sp * 4; c.H = 16.5 + sp * 3;
+      c.B = 13 + sp * 4; c.H = 14.5 + sp * 3;
       c.ca = Math.cos(c.a); c.sa = Math.sin(c.a);
       c.cp = Math.cos(c.pitch); c.sp = Math.sin(c.pitch);
       // Позиция камеры в мире (для отсечения граней зданий).
@@ -547,58 +548,128 @@
       if (!pf || !pr || !pu) return;
       const F = [pf[0] - base[0], pf[1] - base[1]], R = [pr[0] - base[0], pr[1] - base[1]], U = [pu[0] - base[0], pu[1] - base[1]];
       const bike = D.bikeById(r.bikeId);
-      const at = (h) => ctx.setTransform(R[0], R[1], -F[0], -F[1], base[0] + U[0] * h, base[1] + U[1] * h);
       const t = bike.type;
-      const wheelW = t === 'fat' ? 0.24 : t === 'mtb' || t === 'enduro' ? 0.13 : t === 'bmx' ? 0.11 : t === 'folding' ? 0.08 : 0.065;
-      const wheelL = t === 'folding' ? 0.42 : t === 'bmx' ? 0.52 : 0.68;
-      const wb = t === 'folding' ? 0.5 : t === 'bmx' ? 0.5 : 0.56;
-
-      // Тень.
-      at(0);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.beginPath(); ctx.ellipse(0.35, 0.25, 0.42, 1.05, 0, 0, Math.PI * 2); ctx.fill();
-      // Колёса.
-      const lean = r.lean || 0;
-      at(0.02);
-      ctx.fillStyle = '#16171a';
-      const wheel = (y) => { ctx.beginPath(); ctx.roundRect(-wheelW / 2, y - wheelL / 2, wheelW, wheelL, wheelW / 2); ctx.fill(); };
-      wheel(-wb); wheel(wb);
-      // Рама и руль.
-      at(0.45);
-      ctx.strokeStyle = bike.color; ctx.lineCap = 'round';
-      ctx.lineWidth = t === 'fat' || t === 'enduro' ? 0.17 : 0.12;
-      ctx.beginPath(); ctx.moveTo(lean * 0.2, -wb * 0.85); ctx.lineTo(0, wb * 0.8); ctx.stroke();
-      ctx.strokeStyle = '#222'; ctx.lineWidth = 0.07;
-      ctx.beginPath();
-      if (t === 'tt') { ctx.moveTo(-0.08, -wb - 0.15); ctx.lineTo(-0.08, -wb + 0.2); ctx.moveTo(0.08, -wb - 0.15); ctx.lineTo(0.08, -wb + 0.2); ctx.moveTo(-0.2, -wb + 0.15); ctx.lineTo(0.2, -wb + 0.15); }
-      else { const bw = t === 'mtb' || t === 'enduro' || t === 'fat' || t === 'bmx' ? 0.36 : 0.22; ctx.moveTo(-bw, -wb + 0.1); ctx.lineTo(bw, -wb + 0.1); }
-      ctx.stroke();
-      // Ноги с анимацией педалирования.
+      // Точка в локальных координатах гонщика (x — вправо, y — назад, h — высота, метры) → экран.
+      const pt = (x, y, h) => [base[0] + R[0] * x - F[0] * y + U[0] * h, base[1] + R[1] * x - F[1] * y + U[1] * h];
+      const k = Math.hypot(R[0], R[1]); // пикселей на метр
+      const seg = (a, b, w, col) => {
+        ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, w * k);
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      };
+      const blob = (c, rx, ry, col) => {
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.ellipse(c[0], c[1], Math.max(0.5, rx * k), Math.max(0.5, ry * k), Math.atan2(-F[0], F[1]), 0, Math.PI * 2); ctx.fill();
+      };
+      const poly = (pts, col) => {
+        ctx.fillStyle = col; ctx.beginPath();
+        pts.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])));
+        ctx.closePath(); ctx.fill();
+      };
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const mtbLike = ['mtb', 'enduro', 'xc', 'fat', 'bmx'].includes(t);
+      const tw = t === 'fat' ? 0.11 : mtbLike ? 0.06 : t === 'gravel' ? 0.042 : 0.028;
+      const wheelD = t === 'folding' ? 0.42 : t === 'bmx' ? 0.52 : 0.7;
+      const wb = t === 'folding' ? 0.52 : t === 'bmx' ? 0.48 : t === 'enduro' ? 0.62 : 0.5;
+      const lean = (r.lean || 0) * 0.16;
+      const tuck = t === 'tt' || t === 'aero' ? 0.14 : t === 'road' ? 0.06 : 0;
       const ph = r.pedal || 0;
-      at(0.55);
-      ctx.fillStyle = '#1b1b1f';
-      ctx.beginPath(); ctx.ellipse(-0.17, 0.05 + Math.sin(ph) * 0.16, 0.08, 0.2, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(0.17, 0.05 - Math.sin(ph) * 0.16, 0.08, 0.2, 0, 0, Math.PI * 2); ctx.fill();
-      // Корпус.
-      const tuck = t === 'tt' || t === 'aero' ? 0.12 : 0;
-      at(1.0 - tuck);
-      ctx.fillStyle = r.jersey;
-      ctx.beginPath(); ctx.ellipse(lean * 0.35, 0.02, 0.27, 0.4, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.fillRect(lean * 0.35 - 0.04, -0.3, 0.08, 0.6);
-      // Руки.
-      ctx.strokeStyle = r.jersey; ctx.lineWidth = 0.1;
-      ctx.beginPath();
-      ctx.moveTo(lean * 0.35 - 0.22, -0.2); ctx.lineTo(-0.2, -wb + 0.12);
-      ctx.moveTo(lean * 0.35 + 0.22, -0.2); ctx.lineTo(0.2, -wb + 0.12);
-      ctx.stroke();
-      // Шлем.
-      at(1.2 - tuck);
-      ctx.fillStyle = r.helmet;
-      ctx.beginPath(); ctx.ellipse(lean * 0.45, -0.32, 0.15, 0.2, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.025;
-      ctx.beginPath(); ctx.moveTo(lean * 0.45 - 0.06, -0.45); ctx.lineTo(lean * 0.45 - 0.06, -0.2);
-      ctx.moveTo(lean * 0.45 + 0.06, -0.45); ctx.lineTo(lean * 0.45 + 0.06, -0.2); ctx.stroke();
+      const rims = (bike.look && bike.look.rims) || 'alu';
+      const rimCol = rims === 'alu' ? '#b9bec5' : '#33353a';
+
+      // Мягкая тень.
+      blob(pt(0.28, 0.25, 0), 0.38, 1.05, 'rgba(0,0,0,0.22)');
+      // Колёса: покрышка + обод сверху.
+      for (const wy of [-wb, wb]) {
+        const a = pt(0, wy - wheelD / 2, wheelD / 2 * 0.15), b = pt(0, wy + wheelD / 2, wheelD / 2 * 0.15);
+        seg(a, b, tw * 2.2, '#121214');
+        seg(pt(0, wy - wheelD * 0.44, 0.06), pt(0, wy + wheelD * 0.44, 0.06), tw * (rims === 'alu' ? 0.7 : 1.1), rimCol);
+      }
+      // Задние перья, рама, вилка.
+      const frame = bike.color, frameD = window.Render.shade(bike.color, 0.65);
+      seg(pt(-0.06, wb, 0.33), pt(-0.03, 0.02, 0.3), 0.035, frameD);
+      seg(pt(0.06, wb, 0.33), pt(0.03, 0.02, 0.3), 0.035, frameD);
+      seg(pt(-0.05, wb, 0.36), pt(0, 0.12, 0.62), 0.03, frame);
+      seg(pt(0.05, wb, 0.36), pt(0, 0.12, 0.62), 0.03, frame);
+      seg(pt(0, 0.02, 0.3), pt(0, -wb + 0.12, 0.6), t === 'aero' || t === 'tt' || t === 'enduro' ? 0.075 : 0.06, frameD);
+      seg(pt(0, 0.14, 0.64), pt(0, -wb + 0.1, 0.66), mtbLike ? 0.06 : 0.05, frame);
+      seg(pt(0, 0.14, 0.64), pt(0, -wb + 0.1, 0.66), 0.015, 'rgba(255,255,255,0.35)');
+      seg(pt(-0.05, -wb, 0.36), pt(0, -wb + 0.08, 0.6), 0.03, mtbLike && t !== 'fat' && t !== 'bmx' ? '#1a1a1d' : frame);
+      seg(pt(0.05, -wb, 0.36), pt(0, -wb + 0.08, 0.6), 0.03, mtbLike && t !== 'fat' && t !== 'bmx' ? '#1a1a1d' : frame);
+      // Звезда, шатуны и педали (вращаются).
+      blob(pt(0.08, 0, 0.3), 0.02, 0.1, '#55595f');
+      const pedalY = (sgn) => Math.cos(ph) * 0.17 * sgn, pedalH = (sgn) => 0.3 + Math.sin(ph) * 0.17 * sgn;
+      const footL = pt(-0.13, pedalY(-1), pedalH(-1)), footR = pt(0.13, pedalY(1), pedalH(1));
+      seg(pt(-0.1, 0, 0.3), footL, 0.025, '#2a2b2f');
+      seg(pt(0.1, 0, 0.3), footR, 0.025, '#2a2b2f');
+
+      // Ноги: бедро → колено → стопа (дальняя нога рисуется первой).
+      const hipH = 0.98 - tuck * 0.3;
+      const leg = (sgn) => {
+        const foot = sgn < 0 ? footL : footR;
+        const fy = pedalY(sgn), fh = pedalH(sgn);
+        const hip = pt(0.1 * sgn + lean * 0.5, 0.2, hipH);
+        const knee = pt(0.15 * sgn + lean * 0.4, -0.22 + fy * 0.4, (hipH + fh) / 2 + 0.12);
+        seg(hip, knee, 0.13, '#17181b');
+        seg(knee, foot, 0.095, '#e2b391');
+        seg(pt(0.15 * sgn, -0.22 + fy * 0.6, fh + 0.15), foot, 0.08, '#f4f4f4');
+        blob(foot, 0.055, 0.13, '#111214');
+      };
+      leg(-1); leg(1);
+
+      // Седло и руль.
+      poly([pt(-0.07 + lean * 0.3, 0.32, hipH - 0.02), pt(0.07 + lean * 0.3, 0.32, hipH - 0.02), pt(0.025, 0.08, hipH - 0.02), pt(-0.025, 0.08, hipH - 0.02)], '#151517');
+      const barY = -wb + 0.06, barH = t === 'bmx' ? 1.05 : t === 'folding' ? 1.0 : mtbLike ? 0.92 : 0.86;
+      seg(pt(0, -wb + 0.12, 0.66), pt(0, barY, barH), 0.04, '#1b1c1f');
+      let handL, handR;
+      if (t === 'tt') {
+        seg(pt(-0.2, barY, barH), pt(0.2, barY, barH), 0.032, '#1b1c1f');
+        seg(pt(-0.06, barY + 0.15, barH + 0.05), pt(-0.05, barY - 0.2, barH + 0.06), 0.03, '#1b1c1f');
+        seg(pt(0.06, barY + 0.15, barH + 0.05), pt(0.05, barY - 0.2, barH + 0.06), 0.03, '#1b1c1f');
+        handL = pt(-0.05, barY - 0.15, barH + 0.07); handR = pt(0.05, barY - 0.15, barH + 0.07);
+      } else if (mtbLike || t === 'hybrid' || t === 'folding') {
+        const bw = t === 'bmx' ? 0.34 : t === 'folding' ? 0.28 : t === 'hybrid' ? 0.31 : 0.39;
+        seg(pt(-bw, barY + 0.03, barH), pt(bw, barY + 0.03, barH), 0.032, '#1b1c1f');
+        seg(pt(-bw, barY + 0.03, barH), pt(-bw + 0.12, barY + 0.03, barH), 0.045, '#0d0d0f');
+        seg(pt(bw - 0.12, barY + 0.03, barH), pt(bw, barY + 0.03, barH), 0.045, '#0d0d0f');
+        if (t === 'bmx') seg(pt(-0.12, barY + 0.06, barH - 0.12), pt(0.12, barY + 0.06, barH - 0.12), 0.02, '#c9ccd1');
+        handL = pt(-bw + 0.06, barY + 0.03, barH + 0.02); handR = pt(bw - 0.06, barY + 0.03, barH + 0.02);
+      } else {
+        // Барашек: верхний хват и «рожки» с ручками.
+        seg(pt(-0.2, barY + 0.04, barH), pt(0.2, barY + 0.04, barH), 0.032, '#151515');
+        seg(pt(-0.2, barY + 0.04, barH), pt(-0.21, barY - 0.1, barH - 0.02), 0.032, '#151515');
+        seg(pt(0.2, barY + 0.04, barH), pt(0.21, barY - 0.1, barH - 0.02), 0.032, '#151515');
+        blob(pt(-0.21, barY - 0.08, barH + 0.02), 0.025, 0.05, '#2b2c30');
+        blob(pt(0.21, barY - 0.08, barH + 0.02), 0.025, 0.05, '#2b2c30');
+        handL = pt(-0.21, barY - 0.07, barH + 0.04); handR = pt(0.21, barY - 0.07, barH + 0.04);
+      }
+
+      // Корпус с наклоном вперёд.
+      const shH = 1.2 - tuck, shY = -0.24 - tuck * 0.6;
+      const jersey = r.jersey, jerseyD = window.Render.shade(r.jersey, 0.7);
+      poly([pt(-0.15 + lean, 0.24, hipH + 0.02), pt(0.15 + lean, 0.24, hipH + 0.02), pt(0.2 + lean * 1.4, shY, shH), pt(-0.2 + lean * 1.4, shY, shH)], jersey);
+      poly([pt(0.06 + lean, 0.22, hipH + 0.04), pt(0.15 + lean, 0.22, hipH + 0.03), pt(0.2 + lean * 1.4, shY + 0.02, shH), pt(0.11 + lean * 1.4, shY + 0.02, shH + 0.01)], jerseyD);
+      seg(pt(lean * 1.2, 0.16, hipH + 0.08), pt(lean * 1.4, shY + 0.05, shH + 0.02), 0.04, 'rgba(255,255,255,0.55)');
+      poly([pt(-0.15 + lean, 0.24, hipH + 0.02), pt(0.15 + lean, 0.24, hipH + 0.02), pt(0.155 + lean, 0.14, hipH + 0.06), pt(-0.155 + lean, 0.14, hipH + 0.06)], jerseyD);
+      // Руки: плечо → локоть → кисть.
+      const arm = (sgn, hand) => {
+        const sh = pt(0.19 * sgn + lean * 1.4, shY + 0.03, shH - 0.02);
+        const el = pt(0.24 * sgn + lean, shY - 0.2, shH - 0.12);
+        seg(sh, el, 0.085, jersey);
+        seg(el, hand, 0.065, '#e2b391');
+        blob(hand, 0.04, 0.05, '#111214');
+      };
+      arm(-1, handL); arm(1, handR);
+      // Голова и шлем.
+      const head = pt(lean * 1.5, shY - 0.13, shH + 0.08);
+      blob(pt(lean * 1.5, shY - 0.06, shH + 0.04), 0.05, 0.05, '#e2b391');
+      const aeroHelmet = t === 'tt';
+      blob(aeroHelmet ? pt(lean * 1.5, shY - 0.05, shH + 0.1) : head, 0.12, aeroHelmet ? 0.24 : 0.16, r.helmet);
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = Math.max(0.5, 0.018 * k);
+      for (const vx of [-0.05, 0, 0.05]) {
+        const a = pt(lean * 1.5 + vx, shY - 0.22, shH + 0.1), b = pt(lean * 1.5 + vx, shY - 0.03, shH + 0.1);
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      }
+      blob(pt(lean * 1.5, shY - 0.26, shH + 0.06), 0.09, 0.03, '#0d0f12');
       ctx.setTransform(1, 0, 0, 1, 0, 0);
 
       // Подпись над соперниками / маркер игрока.

@@ -13,7 +13,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 button { font: inherit; color: inherit; cursor: pointer; }
 [hidden] { display: none !important; }
 
@@ -30,6 +30,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tabs button { background: transparent; border: 1px solid transparent; padding: 8px 14px; border-radius: 10px; color: var(--muted); font-weight: 600; }
 .tabs button:hover { color: var(--text); background: var(--panel); }
 .tabs button.active { color: var(--text); background: var(--panel-2); border-color: var(--line); }
+.tabs button i { font-style: normal; }
 .money { font-weight: 800; font-size: 18px; background: var(--panel); padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
 .money.flash { animation: flash .6s; }
 @keyframes flash { 50% { background: #3a3110; } }
@@ -67,6 +68,7 @@ h1, h2, h3 { margin: 0 0 10px; }
 .photo-credit { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; padding: 3px 8px; background: linear-gradient(transparent, rgba(0, 0, 0, .75)); color: #d0d6df; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .photo-credit a { color: #d0d6df; }
 .photo .tag { position: absolute; top: 8px; left: 8px; }
+.photo-toggle { position: absolute; top: 8px; right: 8px; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .25); background: rgba(0, 0, 0, .55); color: #fff; }
 
 /* ── Характеристики ──────────────────────────────────── */
 .stats { display: grid; gap: 5px; }
@@ -118,10 +120,11 @@ h1, h2, h3 { margin: 0 0 10px; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--line); padding: 10px 18px; border-radius: 12px; z-index: 50; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); }
 
 /* ── Гонка ────────────────────────────────────────────── */
-#race-view { position: fixed; inset: 0; background: #000; z-index: 20; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; }
+:root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px); --sar: env(safe-area-inset-right, 0px); }
+#race-view { position: fixed; inset: 0; background: #000; z-index: 20; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; -webkit-touch-callout: none; }
 #game { width: 100%; height: 100%; display: block; }
 #hud { position: absolute; inset: 0; pointer-events: none; font-weight: 800; text-shadow: 0 2px 6px rgba(0, 0, 0, .6); }
-.hud-top-left { position: absolute; left: 16px; top: 12px; }
+.hud-top-left { position: absolute; left: calc(16px + var(--sal)); top: calc(12px + var(--sat)); }
 .hud-pos { font-size: 54px; line-height: 1; }
 .hud-pos small { font-size: 22px; color: #cfd6e0; }
 .hud-lap { font-size: 18px; }
@@ -131,38 +134,30 @@ h1, h2, h3 { margin: 0 0 10px; }
 .hud-board li.me { color: var(--accent-2); }
 .hud-board .gap { margin-left: auto; color: #aab3c0; font-variant-numeric: tabular-nums; }
 .hud-board .sw { width: 8px; height: 8px; border-radius: 2px; margin-top: 6px; flex: none; }
-#minimap { position: absolute; right: 14px; top: 14px; width: 180px; height: 180px; background: rgba(0, 0, 0, .35); border-radius: 14px; }
-.hud-bottom { position: absolute; left: 0; right: 0; bottom: 16px; display: flex; justify-content: center; align-items: flex-end; gap: 28px; padding: 0 16px; }
+#minimap { position: absolute; right: calc(14px + var(--sar)); top: calc(14px + var(--sat)); width: 180px; height: 180px; background: rgba(0, 0, 0, .35); border-radius: 14px; }
+.hud-buttons { position: absolute; right: calc(204px + var(--sar)); top: calc(14px + var(--sat)); display: flex; gap: 8px; }
+.hud-btn { pointer-events: auto; min-width: 44px; height: 44px; border-radius: 12px; border: 0; background: rgba(0, 0, 0, .45); font-size: 17px; font-weight: 800; color: #fff; }
+.hud-bottom { position: absolute; left: calc(16px + var(--sal)); right: calc(130px + var(--sar)); bottom: calc(16px + var(--sab)); display: flex; justify-content: center; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+.hud-info { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .hud-speed { font-size: 64px; line-height: 1; font-variant-numeric: tabular-nums; }
 .hud-speed small { font-size: 16px; margin-left: 4px; color: #cfd6e0; }
 .hud-energy { width: 170px; }
 .hud-energy .bar { height: 10px; background: rgba(0, 0, 0, .5); }
-.hud-energy .bar div { height: 100%; width: 100%; background: linear-gradient(90deg, #ffb020, #ffd400); }
+.hud-energy .bar div { height: 100%; width: 100%; background: linear-gradient(90deg, #ffb020, #ffd400); transition: width .15s; }
 .hud-energy small { font-size: 12px; color: #cfd6e0; }
-.hud-surface { font-size: 15px; display: flex; gap: 6px; align-items: center; background: rgba(0, 0, 0, .35); padding: 4px 10px; border-radius: 10px; min-width: 170px; }
+.hud-surface, .hud-tactic { font-size: 15px; display: flex; gap: 6px; align-items: center; background: rgba(0, 0, 0, .35); padding: 4px 10px; border-radius: 10px; }
+.hud-tactic { font-size: 13px; color: #ffe27a; }
 .hud-surface .dot { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, .4); }
 .hud-center { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: 96px; color: #fff; }
 .hud-center.small { font-size: 48px; }
-.hud-center.tiny { font-size: 24px; top: 13%; }
-.hud-warn { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); background: rgba(200, 30, 30, .85); padding: 8px 16px; border-radius: 10px; font-size: 18px; }
-.hud-keys { position: absolute; left: 50%; bottom: 100px; transform: translateX(-50%); font-size: 13px; font-weight: 600; background: rgba(0, 0, 0, .4); padding: 6px 12px; border-radius: 8px; white-space: nowrap; transition: opacity 1s; }
-.hud-pause { pointer-events: auto; position: absolute; right: 204px; top: 14px; width: 40px; height: 40px; border-radius: 10px; border: 0; background: rgba(0, 0, 0, .4); font-size: 18px; }
+.hud-center.tiny { font-size: 22px; top: 16%; }
+.sprint-btn { pointer-events: auto; position: absolute; right: calc(18px + var(--sar)); bottom: calc(18px + var(--sab)); width: 96px; height: 96px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .5); background: radial-gradient(circle at 35% 30%, #ff5c7a, #d4123b); color: #fff; font-size: 34px; line-height: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 8px 24px rgba(212, 18, 59, .45); -webkit-tap-highlight-color: transparent; }
+.sprint-btn span { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+.sprint-btn.on { transform: scale(.92); background: radial-gradient(circle at 35% 30%, #ffe27a, #ffb020); }
+.sprint-btn:disabled { filter: grayscale(1); opacity: .5; box-shadow: none; }
 
-#touch { display: none; }
-@media (pointer: coarse) {
-  #touch { display: flex; position: absolute; left: 0; right: 0; bottom: 0; justify-content: space-between; padding: 14px; pointer-events: none; }
-  #touch div { display: flex; gap: 10px; align-items: flex-end; }
-  #touch button { pointer-events: auto; width: 74px; height: 74px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .35); background: rgba(0, 0, 0, .35); font-size: 26px; color: #fff; }
-  #touch button.on { background: rgba(255, 45, 85, .6); }
-  .hud-keys { display: none; }
-  .hud-bottom { top: 10px; bottom: auto; gap: 14px; }
-  .hud-speed { font-size: 40px; }
-  .hud-energy small { display: none; }
-  .hud-energy { width: 110px; }
-  .hud-surface { min-width: 0; font-size: 13px; }
-}
-
-.overlay { position: absolute; inset: 0; background: rgba(5, 7, 10, .72); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.overlay { position: fixed; inset: 0; background: rgba(5, 7, 10, .72); display: flex; align-items: center; justify-content: center; padding: calc(16px + var(--sat)) 16px calc(16px + var(--sab)); z-index: 30; }
+#race-view .overlay { position: absolute; }
 .overlay .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 24px; min-width: 300px; max-width: 640px; width: 100%; display: flex; flex-direction: column; gap: 10px; max-height: 100%; overflow: auto; }
 .results-place { font-size: 64px; font-weight: 900; line-height: 1; }
 .results table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -170,25 +165,65 @@ h1, h2, h3 { margin: 0 0 10px; }
 .results tr.me td { color: var(--accent-2); font-weight: 700; }
 .results .num { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* ── Предстартовое окно и тактика ─────────────────────── */
+.tactics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tactic { text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.tactic b { font-size: 15px; }
+.tactic small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.tactic.selected { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+.prerace-bike { display: grid; grid-template-columns: 200px 1fr; gap: 12px; align-items: center; }
+.prerace-bike .photo { border-radius: 10px; }
+
+/* ── Тренировки ───────────────────────────────────────── */
+.rider-card { display: grid; grid-template-columns: 220px 1fr; gap: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 18px; align-items: center; }
+.rider-card svg { width: 100%; height: auto; display: block; }
+.rider-name { background: transparent; border: 1px solid transparent; border-radius: 8px; font: inherit; font-size: 24px; font-weight: 800; color: var(--text); padding: 2px 6px; margin-left: -6px; width: 100%; max-width: 360px; }
+.rider-name:hover, .rider-name:focus { border-color: var(--line); outline: none; background: var(--panel-2); }
+.rider-attrs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 18px; margin-top: 10px; }
+.trainings { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.training { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.training .head { display: flex; gap: 10px; align-items: center; }
+.training .icon { font-size: 30px; width: 48px; height: 48px; display: grid; place-items: center; background: var(--panel-2); border-radius: 12px; }
+.pips.wide i { width: 14px; }
+
+/* ── iPhone / узкие экраны ────────────────────────────── */
+.topbar { padding-top: calc(10px + var(--sat)); padding-left: calc(20px + var(--sal)); padding-right: calc(20px + var(--sar)); }
 @media (max-width: 860px) {
   .garage { grid-template-columns: 1fr; }
   .garage-list { flex-direction: row; overflow-x: auto; }
   .garage-item { min-width: 220px; }
   .detail-head { grid-template-columns: 1fr; }
-  .topbar { flex-wrap: wrap; padding: 8px 12px; }
-  .tabs { order: 3; flex-basis: 100%; }
-  #screen { padding: 12px; }
+  .topbar { padding: calc(8px + var(--sat)) calc(12px + var(--sar)) 8px calc(12px + var(--sal)); }
+  /* backdrop-filter у шапки сделал бы её контейнером для position:fixed — панель вкладок уехала бы вверх */
+  .topbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg); }
+  .toast { bottom: calc(86px + var(--sab)); }
+  .logo { flex: 1; }
+  /* Нижняя панель вкладок как в iOS-приложениях */
+  .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; gap: 0; padding: 6px 4px calc(6px + var(--sab)); background: rgba(15, 18, 24, .96); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-top: 1px solid var(--line); }
+  .tabs button { flex: 1; display: flex; flex-direction: column; align-items: center; font-size: 11px; padding: 4px 2px; border: 0 !important; background: transparent !important; white-space: pre-line; line-height: 1.25; }
+  .tabs button.active { color: var(--accent-2); }
+  .tabs button i { display: block; font-size: 22px; line-height: 1.1; }
+  #screen { padding: 12px 12px calc(84px + var(--sab)); }
   .active-bike { flex-direction: column; align-items: stretch; }
   .active-bike .photo { width: 100%; }
+  .rider-card { grid-template-columns: 1fr; }
+  .rider-card svg { max-width: 260px; margin: 0 auto; }
+  .tactics { grid-template-columns: 1fr; }
+  .prerace-bike { grid-template-columns: 1fr; }
   .hud-pos { font-size: 40px; }
   .hud-speed { font-size: 44px; }
-  #minimap { width: 120px; height: 120px; }
-  .hud-pause { right: 144px; }
+  #minimap { width: 110px; height: 110px; }
+  .hud-buttons { right: calc(14px + var(--sar)); top: calc(132px + var(--sat)); }
   .hud-board { display: none; }
+  .hud-bottom { gap: 10px 16px; justify-content: flex-start; }
+  .hud-energy { width: 120px; }
+  .sprint-btn { width: 84px; height: 84px; }
+  .results-place { font-size: 40px; }
+  .overlay .panel { padding: 18px; }
 }
 @media (max-height: 500px) {
   .hud-board { display: none; }
   .hud-pos { font-size: 36px; }
   #minimap { width: 110px; height: 110px; }
-  .hud-pause { right: 134px; }
+  .hud-buttons { right: calc(134px + var(--sar)); top: calc(14px + var(--sat)); }
 }

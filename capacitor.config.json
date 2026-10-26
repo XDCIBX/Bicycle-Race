@@ -1,0 +1,9 @@
+{
+  "appId": "com.velorush.game",
+  "appName": "Velo Rush",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0f1218"
+  }
+}

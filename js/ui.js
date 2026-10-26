@@ -1,4 +1,4 @@
-// Меню: трассы, гараж (улучшения и колёса), магазин велосипедов.
+// Меню: трассы (с выбором тактики), тренировки гонщика, гараж (улучшения и колёса), магазин.
 (function () {
   'use strict';
   const D = window.GameData;
@@ -39,7 +39,7 @@
     return `<div class="stats">${D.STAT_KEYS.map((k) => {
       const v = Math.round(stats[k]);
       const b = base ? Math.round(base[k]) : v;
-      const lo = Math.min(v, b), diff = v - b;
+      const lo = Math.min(v, b, 100), diff = Math.min(v, 100) - Math.min(b, 100);
       return `<div class="stat"><span class="name">${D.STAT_NAMES[k]}</span>
         <div class="bar"><div class="base" style="width:${lo}%"></div>${diff > 0 ? `<div class="bonus" style="width:${diff}%"></div>` : ''}${diff < 0 ? `<div class="minus" style="width:${-diff}%"></div>` : ''}</div>
         <span class="val">${v}</span></div>`;
@@ -54,7 +54,7 @@
 
   function ownedStats(bikeId) {
     const o = UI.state.owned[bikeId];
-    return GS.effectiveStats(bikeId, o.upgrades, o.wheel);
+    return GS.effectiveStats(bikeId, o.upgrades, o.wheel, UI.state.rider.skills);
   }
 
   // Эталонное время круга: лучший велосипед в стоке с лучшими колёсами.
@@ -100,12 +100,13 @@
           <div class="muted">Ваш велосипед</div>
           <h2 style="margin:0">${esc(bike.name)}</h2>
           <div class="muted">${D.BIKE_TYPES[bike.type]} · ${esc(D.WHEELS[o.wheel].name)}</div>
+          <div class="muted">Гонщик: ${esc(st.rider.name)}, уровень ${GS.riderLevel(st.rider.skills)} · тактика: ${esc(D.TACTICS.find((x) => x.id === st.tactic).name)}</div>
         </div>
         <button class="btn" data-go="garage">Сменить / улучшить</button>
       </div>
-      <div class="section-title"><h2>Трассы</h2><p>Займите место в тройке, чтобы открыть следующую трассу. Разные покрытия требуют разных велосипедов и колёс.</p></div>
+      <div class="section-title"><h2>Трассы</h2><p>Велосипед едет сам — исход решают его характеристики, колёса, тренированность гонщика и выбранная тактика. Займите место в тройке, чтобы открыть следующую трассу.</p></div>
       <div class="grid" id="track-grid"></div>`;
-    window.BikePhotos.attach($('#active-photo', root), bike);
+    window.BikePhotos.attach($('#active-photo', root), bike, o.wheel);
     const grid = $('#track-grid', root);
     D.TRACKS.forEach((t, i) => {
       const tr = window.Tracks.get(t.id);
@@ -142,6 +143,102 @@
       window.Render.drawTrackMap(ctx, tr, cv.width, cv.height, { lw: 9, pad: 26 });
       grid.appendChild(card);
     });
+  }
+
+  // ── Тренировки гонщика ─────────────────────────────────────
+  function renderTraining(root) {
+    const st = UI.state;
+    const sk = st.rider.skills;
+    const pr = GS.riderProfile(sk);
+    const lvl = GS.riderLevel(sk);
+    root.innerHTML = `
+      <div class="section-title"><h2>Тренировки</h2><p>Велосипед — половина успеха. Вторая половина — ноги гонщика. Тренировки действуют на любом велосипеде.</p></div>
+      <div class="rider-card">
+        <div>${window.BikeArt.riderSvg(lvl, '#ff2d55')}</div>
+        <div>
+          <input class="rider-name" id="rider-name" maxlength="20" value="${esc(st.rider.name)}" aria-label="Имя гонщика">
+          <div class="muted">Уровень ${lvl} · гонок ${st.races}, побед ${st.wins}</div>
+          <div class="rider-attrs">
+            <div class="kv"><b>Класс гонщика</b><span>${Math.round(pr.skill * 100)}%</span></div>
+            <div class="kv"><b>Запас энергии</b><span>${pr.energyMax}</span></div>
+            <div class="kv"><b>Восстановление</b><span>${pr.regen.toFixed(1)}/с</span></div>
+            <div class="kv"><b>Сила спурта</b><span>+${Math.round((pr.sprintBoost - 1) * 100)}% к скорости</span></div>
+            <div class="kv"><b>На колесе</b><span>+${(pr.draft * 100).toFixed(1)}% к скорости</span></div>
+            <div class="kv"><b>Смелость в поворотах</b><span>${Math.round(pr.corner * 100)}%</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="trainings" id="trainings"></div>`;
+    const nameInput = $('#rider-name', root);
+    nameInput.onchange = () => { st.rider.name = nameInput.value.trim().slice(0, 20) || 'Вы'; commit(); };
+    const box = $('#trainings', root);
+    D.RIDER_SKILLS.forEach((k) => {
+      const level = sk[k.id];
+      const max = level >= D.RIDER_MAX;
+      const price = max ? 0 : GS.trainingPrice(k.id, level);
+      const div = document.createElement('div');
+      div.className = 'training';
+      div.innerHTML = `
+        <div class="head"><div class="icon">${k.icon}</div><div><b>${esc(k.name)}</b><div class="muted" style="font-size:13px">${esc(k.training)}</div></div></div>
+        <div class="chips"><span class="chip good">${esc(k.effect)}</span></div>
+        <div class="row"><div class="pips wide">${Array.from({ length: D.RIDER_MAX }, (_, i) => `<i class="${i < level ? 'on' : ''}"></i>`).join('')}</div>
+          <span class="spacer"></span><span class="muted" style="font-size:13px">${level}/${D.RIDER_MAX}</span></div>
+        ${max ? '<span class="badge">Максимум</span>' : `<button class="btn gold" ${st.money < price ? 'disabled' : ''}>Тренироваться · ${fmtMoney(price)}</button>`}`;
+      const b = $('button', div);
+      if (b) b.onclick = () => {
+        if (st.money < price) return;
+        st.money -= price;
+        sk[k.id]++;
+        commit(true);
+        toast(`${k.icon} ${k.name}: уровень ${sk[k.id]}`);
+        render();
+      };
+      box.appendChild(div);
+    });
+  }
+
+  // ── Перед стартом: прогноз и тактика ────────────────────────
+  function openPrerace(trackId) {
+    const st = UI.state;
+    const t = D.trackById(trackId);
+    const bike = D.bikeById(st.active);
+    const o = st.owned[st.active];
+    const stats = ownedStats(st.active);
+    const fc = forecast(trackId, stats, o.wheel);
+    const el = $('#prerace');
+    el.innerHTML = `
+      <div class="panel">
+        <div class="muted">Трасса · ${t.laps} круга · ${esc(t.focus)}</div>
+        <h2 style="margin:0">${esc(t.name)}</h2>
+        <div class="prerace-bike">
+          <div class="photo" id="pre-photo"></div>
+          <div>
+            <b>${esc(bike.name)}</b>
+            <div class="muted" style="font-size:13px">${esc(D.WHEELS[o.wheel].name)}</div>
+            <div style="margin-top:6px">Прогноз: <span class="stars">${starStr(fc.stars)}</span></div>
+            <div class="muted" style="font-size:13px">Круг ≈ ${fmtTime(fc.lap)} · гонщик ур. ${GS.riderLevel(st.rider.skills)}</div>
+          </div>
+        </div>
+        <b>Тактика на гонку</b>
+        <div class="tactics">${D.TACTICS.map((x) => `<button class="tactic ${x.id === st.tactic ? 'selected' : ''}" data-tactic="${x.id}"><b>${x.icon} ${esc(x.name)}</b><small>${esc(x.desc)}</small></button>`).join('')}</div>
+        <div class="muted" style="font-size:13px">Во время гонки велосипед едет сам. Кнопка ⚡ «Спурт» даёт рывок на 4 секунды, если хватает энергии.</div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn primary" id="pre-start" style="flex:1">Старт ▶</button>
+          <button class="btn" id="pre-cancel">Отмена</button>
+        </div>
+      </div>`;
+    window.BikePhotos.attach($('#pre-photo', el), bike, o.wheel);
+    el.querySelectorAll('[data-tactic]').forEach((b) => {
+      b.onclick = () => {
+        st.tactic = b.dataset.tactic;
+        commit();
+        el.querySelectorAll('[data-tactic]').forEach((x) => x.classList.toggle('selected', x === b));
+      };
+    });
+    el.hidden = false;
+    $('#pre-cancel', el).onclick = () => { el.hidden = true; render(); };
+    el.onclick = (e) => { if (e.target === el) { el.hidden = true; render(); } };
+    $('#pre-start', el).onclick = () => { el.hidden = true; UI.onStartRace(trackId); };
   }
 
   // ── Гараж ──────────────────────────────────────────────────
@@ -188,17 +285,18 @@
     const st = UI.state;
     const bike = D.bikeById(id);
     const o = st.owned[id];
-    const stats = GS.effectiveStats(id, o.upgrades, o.wheel);
+    const stats = GS.effectiveStats(id, o.upgrades, o.wheel, st.rider.skills);
     el.innerHTML = `
       <div class="detail-head">
         <div class="photo" id="dphoto"></div>
         <div class="info">
-          <div class="row"><h2 style="margin:0">${esc(bike.name)}</h2><span class="badge">${D.BIKE_TYPES[bike.type]}</span></div>
+          <div class="muted" style="font-weight:700;letter-spacing:1px">${esc(bike.brand.toUpperCase())}${bike.maker ? ` · ${esc(bike.maker)}` : ''}</div>
+          <div class="row"><h2 style="margin:0">${esc(bike.model)}</h2><span class="badge">${D.BIKE_TYPES[bike.type]}</span></div>
           <div class="muted">${esc(bike.desc)}</div>
           ${statBars(stats, bike.stats)}
           <div class="row">
             ${id === st.active ? '<span class="badge hot">Выбран для гонок</span>' : `<button class="btn primary" id="btn-activate">Выбрать для гонок</button>`}
-            <span class="muted" style="font-size:12px">Синий — база, оранжевый — улучшения и колёса</span>
+            <span class="muted" style="font-size:12px">Синий — база, оранжевый — улучшения, колёса и тренировки</span>
           </div>
         </div>
       </div>
@@ -214,7 +312,7 @@
         <h3>Прогноз по трассам</h3>
         <div class="forecast" id="fc"></div>
       </section>`;
-    window.BikePhotos.attach($('#dphoto', el), bike);
+    window.BikePhotos.attach($('#dphoto', el), bike, o.wheel);
     const act = $('#btn-activate', el);
     if (act) act.onclick = () => { st.active = id; commit(); toast(`${bike.name} — готов к старту`); render(); };
 
@@ -286,7 +384,7 @@
   function renderShop(root) {
     const st = UI.state;
     root.innerHTML = `
-      <div class="section-title"><h2>Магазин велосипедов</h2><p>Реальные модели: каждая сильна в своём — скорость, разгон, повороты, горы или бездорожье. Фото — с Wikimedia Commons.</p></div>
+      <div class="section-title"><h2>Магазин велосипедов</h2><p>Только реальные бренды и модели: Specialized, Pinarello, Colnago, Canyon, Cervélo, Bianchi, Giant, Trek, Scott, Cannondale, Orbea, Surly, Brompton, Mongoose, Rockrider. Каждая сильна в своём.</p></div>
       <div class="grid" id="shop-grid"></div>`;
     const grid = $('#shop-grid', root);
     D.BIKES.forEach((b) => {
@@ -296,7 +394,8 @@
       card.innerHTML = `
         <div class="photo"></div>
         <div class="body">
-          <div class="row"><h3 style="margin:0">${esc(b.name)}</h3></div>
+          <div class="muted" style="font-weight:700;letter-spacing:1px;font-size:12px">${esc(b.brand.toUpperCase())}${b.maker ? ` · ${esc(b.maker)}` : ''}</div>
+          <div class="row"><h3 style="margin:0">${esc(b.model)}</h3></div>
           <div class="row"><span class="badge">${D.BIKE_TYPES[b.type]}</span><span class="badge">${D.WHEEL_SIZE_NAMES[D.WHEELS[b.stockWheel].size]}</span><span class="badge">Класс ${ROMAN[b.tier - 1]}</span></div>
           <div class="muted" style="font-size:13px">${esc(b.desc)}</div>
           <div style="font-size:13px"><b>Сильные стороны:</b> ${strengths(b)}</div>
@@ -328,10 +427,11 @@
     const root = $('#screen');
     document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.screen === UI.screen));
     if (UI.screen === 'tracks') renderTracks(root);
+    else if (UI.screen === 'training') renderTraining(root);
     else if (UI.screen === 'garage') renderGarage(root);
     else renderShop(root);
     root.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => show(b.dataset.go); });
-    root.querySelectorAll('[data-race]').forEach((b) => { b.onclick = () => UI.onStartRace(b.dataset.race); });
+    root.querySelectorAll('[data-race]').forEach((b) => { b.onclick = () => openPrerace(b.dataset.race); });
   }
 
   function show(screen) {
