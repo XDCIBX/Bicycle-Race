@@ -92,7 +92,7 @@
   }
 
   function bestBotBike(bikeTrack, tier, rnd) {
-    const pool = D.BIKES.filter((b) => b.tier >= tier - 1 && b.tier <= Math.max(2, tier + 1));
+    const pool = D.BIKES.filter((b) => !b.dh && b.tier >= tier - 1 && b.tier <= Math.max(2, tier + 1));
     const lvl = clamp(tier - 2, 0, 4);
     let best = null;
     pool.forEach((b) => {

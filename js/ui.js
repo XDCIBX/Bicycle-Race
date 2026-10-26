@@ -78,19 +78,26 @@
   }
 
   // ── Характеристики ─────────────────────────────────────────
-  function statBars(stats, base) {
-    return `<div class="stats">${D.STAT_KEYS.map((k) => {
+  function statBars(stats, base, dh) {
+    const keys = dh ? D.DH_STAT_KEYS : D.STAT_KEYS, names = dh ? D.DH_STAT_NAMES : D.STAT_NAMES;
+    return `<div class="stats">${keys.map((k) => {
       const v = Math.round(stats[k]);
       const b = base ? Math.round(base[k]) : v;
       const lo = Math.min(v, b, 100), diff = Math.min(v, 100) - Math.min(b, 100);
-      return `<div class="stat"><span class="name">${D.STAT_NAMES[k]}</span>
+      return `<div class="stat"><span class="name">${names[k]}</span>
         <div class="bar"><div class="base" style="width:${lo}%"></div>${diff > 0 ? `<div class="bonus" style="width:${diff}%"></div>` : ''}${diff < 0 ? `<div class="minus" style="width:${-diff}%"></div>` : ''}</div>
         <span class="val">${v}</span></div>`;
     }).join('')}</div>`;
   }
   function strengths(bike) {
-    const s = bike.stats;
-    return D.STAT_KEYS.slice().sort((a, b) => s[b] - s[a]).slice(0, 2).map((k) => D.STAT_NAMES[k]).join(', ');
+    const s = bike.dh ? bike.dhStats : bike.stats;
+    const keys = bike.dh ? D.DH_STAT_KEYS : D.STAT_KEYS, names = bike.dh ? D.DH_STAT_NAMES : D.STAT_NAMES;
+    return keys.slice().sort((a, b) => s[b] - s[a]).slice(0, 2).map((k) => names[k]).join(', ');
+  }
+  // DH-характеристики велосипеда из гаража (с улучшениями, покрышками, тренировками и навыками).
+  function ownedDhStats(bikeId) {
+    const st = UI.state, o = st.owned[bikeId];
+    return GS.dhStats(bikeId, o.upgrades, o.wheel, st.rider.skills, st.perks);
   }
   function ownedStats(bikeId) {
     const st = UI.state, o = st.owned[bikeId];
@@ -102,8 +109,11 @@
     if (refCache[trackId]) return refCache[trackId];
     const tr = window.Tracks.get(trackId);
     let best = Infinity;
-    D.BIKES.forEach((b) => Object.keys(D.WHEELS).forEach((w) => {
-      if (b.sizes.includes(D.WHEELS[w].size)) best = Math.min(best, window.Tracks.estimateLap(tr, GS.effectiveStats(b.id, null, w), w));
+    const dh = !!tr.def.dh;
+    D.BIKES.filter((b) => !!b.dh === dh).forEach((b) => Object.keys(D.WHEELS).forEach((w) => {
+      if (!b.sizes.includes(D.WHEELS[w].size)) return;
+      const stats = dh ? GS.dhPhysicsStats(GS.dhStats(b.id, null, w)) : GS.effectiveStats(b.id, null, w);
+      best = Math.min(best, window.Tracks.estimateLap(tr, stats, w));
     }));
     return (refCache[trackId] = best);
   }
@@ -140,26 +150,118 @@
   // ═════════ ГОНКИ ═════════
   function renderRace(root) {
     const st = UI.state;
-    const bike = D.bikeById(st.active);
-    const o = st.owned[st.active];
+    const dhTab = UI.sub.race === 'dh';
+    const bid = dhTab ? st.activeDh : st.active;
+    const bike = bid && D.bikeById(bid);
+    const o = bid && st.owned[bid];
     root.innerHTML = `
       ${levelBar()}
-      <div class="active-bike">
+      ${bike ? `<div class="active-bike">
         <div class="photo" id="active-photo"></div>
         <div style="flex:1;min-width:0">
-          <div class="muted">Ваш велосипед</div>
+          <div class="muted">${dhTab ? 'Ваш велосипед для даунхилла' : 'Ваш велосипед'}</div>
           <h2 style="margin:0">${esc(bike.name)}</h2>
           <div class="muted">${D.BIKE_TYPES[bike.type]} · ${esc(D.WHEELS[o.wheel].name)}</div>
         </div>
-        <button class="btn" data-go="garage">Сменить / улучшить</button>
-      </div>
-      ${subTabs('race', [['tracks', '🚴 Трассы'], ['champs', '🏆 Чемпионаты'], ['tri', '🏊 Триатлон']])}
+        <button class="btn" data-garage="${bid}">Сменить / улучшить</button>
+      </div>` : `<div class="active-bike"><div style="font-size:44px">🏔️</div>
+        <div style="flex:1;min-width:0"><div class="muted">Даунхилл</div><h2 style="margin:0">Нужен DH-велосипед</h2>
+          <div class="muted">Для спусков нужен специальный двухподвес с ходом 200 мм. Купите его в магазине — раздел «Даунхилл».</div></div>
+        <button class="btn gold" data-shop-dh>🛒 В магазин</button></div>`}
+      ${subTabs('race', [['tracks', '🚴 Трассы'], ['champs', '🏆 Чемпионаты'], ['tri', '🏊 Триатлон'], ['dh', '🏔️ Даунхилл']])}
       <div id="race-sub"></div>`;
-    window.BikePhotos.attach($('#active-photo', root), bike, o.wheel);
+    if (bike) window.BikePhotos.attach($('#active-photo', root), bike, o.wheel);
     const sub = $('#race-sub', root);
-    if (UI.sub.race === 'champs') renderChamps(sub);
+    if (UI.sub.race === 'champs') renderChamps(sub, false);
     else if (UI.sub.race === 'tri') renderTri(sub);
+    else if (dhTab) renderDh(sub);
     else renderTracks(sub);
+  }
+
+  // ── Даунхилл: отдельные трассы и соревнования ──
+  // Профиль высот трассы: видно перепад, уступы (▼), трамплины (▲) и лестницы.
+  function drawProfile(cv, tr) {
+    const ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
+    const S = tr.samples, end = tr.finishIdx;
+    const z0 = S[0].z, z1 = S[end].z, span = Math.max(1, z0 - z1);
+    const X = (i) => 4 + (i / end) * (w - 8), Y = (z) => 6 + (z0 - z) / span * (h - 14);
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, 'rgba(255,138,61,0.55)'); g.addColorStop(1, 'rgba(255,138,61,0.05)');
+    ctx.beginPath(); ctx.moveTo(X(0), h);
+    for (let i = 0; i <= end; i += 2) ctx.lineTo(X(i), Y(S[i].z));
+    ctx.lineTo(X(end), h); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+    ctx.beginPath();
+    for (let i = 0; i <= end; i += 2) (i ? ctx.lineTo(X(i), Y(S[i].z)) : ctx.moveTo(X(i), Y(S[i].z)));
+    ctx.strokeStyle = '#ff8a3d'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center';
+    for (let i = 0; i <= end; i++) {
+      const p = S[i];
+      const mark = p.kicker ? ['▲', '#ffd400'] : p.drop ? ['▼', '#ff5a5a'] : p.stairs && !S[Math.max(0, i - 1)].stairs ? ['☰', '#cfd6df'] : null;
+      if (mark) { ctx.fillStyle = mark[1]; ctx.fillText(mark[0], X(i), Y(p.z) - 4); }
+    }
+  }
+  function dhFeatures(tr) {
+    let k = 0, d = 0, s = 0;
+    tr.samples.forEach((p, i) => { if (p.kicker) k++; if (p.drop) d++; if (p.stairs && !(tr.samples[i - 1] || {}).stairs) s++; });
+    return [k ? `▲ трамплинов: ${k}` : '', d ? `▼ дропов: ${d}` : '', s ? `☰ лестниц: ${s}` : ''].filter(Boolean).join(' · ');
+  }
+  function dhForecast(trackId) {
+    const st = UI.state;
+    if (!st.activeDh) return null;
+    const o = st.owned[st.activeDh];
+    const stats = GS.dhPhysicsStats(ownedDhStats(st.activeDh));
+    const lap = window.Tracks.estimateLap(window.Tracks.get(trackId), stats, o.wheel);
+    const ratio = refLap(trackId) / lap;
+    return { lap, stars: Math.max(1, Math.min(5, Math.round((ratio - 0.62) / 0.36 * 5))) };
+  }
+  function renderDh(root) {
+    const st = UI.state;
+    const lvl = PR.level(st);
+    root.innerHTML = `<div class="section-title"><h2>Даунхилл</h2><p>Отдельная дисциплина: спуск с горы на время на специальном DH-велосипеде. Скорость даёт гравитация, а исход решают подвеска, устойчивость, управляемость и навык прыжков. Соперники едут «призраками» — без столкновений, как в заездах на время.</p></div>
+      <div class="grid" id="dh-grid"></div>
+      <div id="dh-champs"></div>`;
+    const grid = $('#dh-grid', root);
+    D.DH_TRACKS.forEach((t, i) => {
+      const tr = window.Tracks.get(t.id);
+      const locked = lvl < t.level;
+      const fc = dhForecast(t.id);
+      const comp = {};
+      tr.samples.forEach((p) => { comp[p.surface] = (comp[p.surface] || 0) + 1; });
+      const compArr = Object.entries(comp).sort((a, b) => b[1] - a[1]);
+      const best = st.dhBest[t.id];
+      const medals = (st.trophies.medals || []).filter((m) => m.event === t.id);
+      const card = document.createElement('div');
+      card.className = 'card' + (locked ? ' locked' : '');
+      card.innerHTML = `
+        <div class="track-thumb"><img alt="${esc(t.name)}"><canvas width="150" height="110"></canvas>
+          ${medals.length ? `<div class="thumb-medals">${['gold', 'silver', 'bronze'].map((k) => { const n = medals.filter((m) => m.kind === k).length; return n ? `<span>${MEDAL_EMOJI[['gold', 'silver', 'bronze'].indexOf(k)]}×${n}</span>` : ''; }).join('')}</div>` : ''}</div>
+        <div class="body">
+          <div class="row"><h3 style="margin:0">${esc(t.name)}</h3><span class="spacer"></span><span class="badge">Ур. ${t.tier}</span></div>
+          <div class="muted">${esc(t.desc)}</div>
+          <canvas class="dh-profile" width="320" height="64"></canvas>
+          <div class="surfbar">${compArr.map(([s, n]) => `<div title="${D.SURFACES[s].name}" style="flex:${n};background:${D.SURFACES[s].color}"></div>`).join('')}</div>
+          <div class="legend">${compArr.map(([s, n]) => `<span><i style="background:${D.SURFACES[s].color}"></i>${D.SURFACES[s].name} ${Math.round(n / tr.N * 100)}%</span>`).join('')}</div>
+          <div class="kv">
+            <b>Спуск</b><span>${(tr.finishS / 1000).toFixed(2)} км · перепад ${Math.round(tr.descent)} м · ширина ${t.width} м</span>
+            <b>Элементы</b><span>${dhFeatures(tr) || '—'}</span>
+            <b>Важно</b><span>${esc(t.focus)}</span>
+            <b>Призы</b><span>${fmtMoney(t.prize)} / ${fmtMoney(t.prize * D.PRIZE_SHARE[1])} / ${fmtMoney(t.prize * D.PRIZE_SHARE[2])}</span>
+            ${fc ? `<b>Прогноз</b><span><span class="stars">${starStr(fc.stars)}</span> <span class="muted">≈ ${fmtTime(fc.lap)}</span></span>` : ''}
+            ${best ? `<b>Рекорд</b><span>${best}-е место${st.dhBestTime[t.id] ? ' · ' + fmtTime(st.dhBestTime[t.id]) : ''}</span>` : ''}
+          </div>
+          <div class="spacer"></div>
+          ${locked ? `<button class="btn" disabled>🔒 Нужен уровень ${t.level}</button>`
+            : !st.activeDh ? '<button class="btn" data-shop-dh>🛒 Купите DH-велосипед</button>'
+              : `<button class="btn primary" data-start="dh:${t.id}">Старт ▶</button>`}
+        </div>`;
+      grid.appendChild(card);
+      const img = $('img', card);
+      setTimeout(() => { if (img.isConnected) img.src = window.Render.renderPreview(tr, 560, 315, 0.42); }, 30 + i * 40);
+      const cv = $('canvas', card);
+      window.Render.drawTrackMap(cv.getContext('2d'), tr, cv.width, cv.height, { lw: 3, pad: 10 });
+      drawProfile($('.dh-profile', card), tr);
+    });
+    renderChamps($('#dh-champs', root), true);
   }
 
   function renderTracks(root) {
@@ -212,10 +314,14 @@
   function stageName(mode, id) {
     return mode === 'tri' ? TRI.eventById(id).name : D.trackById(id).name;
   }
-  function renderChamps(root) {
+  const MODE_NAME = { cycle: 'велогонки', tri: 'триатлон', dh: 'даунхилл' };
+  const MODE_BADGE = { cycle: '🚴 Вело', tri: '🏊 Триатлон', dh: '🏔️ DH' };
+  // dhOnly — соревнования по даунхиллу (на своей вкладке), иначе — велогонки и триатлон.
+  function renderChamps(root, dhOnly) {
     const st = UI.state;
     const lvl = PR.level(st);
-    const ch = st.champ;
+    const ch = st.champ && (PR.champById(st.champ.id).mode === 'dh') === !!dhOnly ? st.champ : null;
+    const busy = st.champ && !ch;
     let html = '';
     if (ch) {
       const c = PR.champById(ch.id);
@@ -223,7 +329,7 @@
       const next = c.stages[ch.stage];
       html += `<div class="champ-active">
         <div class="row"><div>${cupSvg('gold', c.color, 64)}</div>
-          <div style="flex:1"><div class="muted">Текущий чемпионат · ${c.mode === 'tri' ? 'триатлон' : 'велогонки'}</div><h2 style="margin:0">${esc(c.name)}</h2>
+          <div style="flex:1"><div class="muted">Текущий чемпионат · ${MODE_NAME[c.mode]}</div><h2 style="margin:0">${esc(c.name)}</h2>
           <div class="stages">${c.stages.map((sid, i) => `<span class="stage ${i < ch.stage ? 'done' : i === ch.stage ? 'now' : ''}">${i < ch.stage ? '✓' : i + 1}. ${esc(stageName(c.mode, sid))}</span>`).join('')}</div></div></div>
         ${table.length ? `<table class="standings"><tr><th>#</th><th>Гонщик</th><th class="num">Очки</th></tr>${table.map((r, i) => `<tr class="${r.name === st.rider.name ? 'me' : ''}"><td>${i + 1}</td><td>${esc(r.name)}</td><td class="num">${r.points}</td></tr>`).join('')}</table>` : '<div class="muted">Очки: 25 / 18 / 15 / 12 / 10 / 8 за места 1–6 на каждом этапе.</div>'}
         <div class="row" style="margin-top:8px">
@@ -231,22 +337,25 @@
           <button class="btn" id="champ-quit">Сняться с чемпионата</button>
         </div></div>`;
     }
-    html += `<div class="section-title"><h2>Чемпионаты</h2><p>Серия этапов с одними и теми же соперниками. Очки за каждый этап, кубок — за итоговое место в общем зачёте.</p></div><div class="grid">`;
-    PR.CHAMPIONSHIPS.forEach((c) => {
+    html += dhOnly
+      ? '<div class="section-title"><h2>Соревнования по даунхиллу</h2><p>Отдельный зачёт: серия спусков с постоянными соперниками на DH-байках. Очки за каждый этап, кубок — за итоговое место.</p></div><div class="grid">'
+      : '<div class="section-title"><h2>Чемпионаты</h2><p>Серия этапов с одними и теми же соперниками. Очки за каждый этап, кубок — за итоговое место в общем зачёте. Соревнования по даунхиллу — на вкладке «🏔️ Даунхилл».</p></div><div class="grid">';
+    PR.CHAMPIONSHIPS.filter((c) => (c.mode === 'dh') === !!dhOnly).forEach((c) => {
       const cups = (st.trophies.cups || []).filter((x) => x.champ === c.id);
       const bestCup = ['gold', 'silver', 'bronze'].find((k) => cups.some((x) => x.kind === k));
       const locked = lvl < c.level;
       html += `<div class="card champ-card ${locked ? 'locked' : ''}">
         <div class="champ-cup">${cupSvg(bestCup || 'none', c.color, 76)}</div>
         <div class="body">
-          <div class="row"><h3 style="margin:0">${esc(c.name)}</h3><span class="spacer"></span><span class="badge">${c.mode === 'tri' ? '🏊 Триатлон' : '🚴 Вело'}</span></div>
+          <div class="row"><h3 style="margin:0">${esc(c.name)}</h3><span class="spacer"></span><span class="badge">${MODE_BADGE[c.mode]}</span></div>
           <div class="muted" style="font-size:13px">${c.stages.map((sid, i) => `${i + 1}. ${esc(stageName(c.mode, sid))}`).join(' · ')}</div>
           <div class="kv"><b>Уровень</b><span>от ${c.level}</span><b>Призовой фонд</b><span>${fmtMoney(c.prize)}</span>
             ${cups.length ? `<b>Кубки</b><span>${cups.map((x) => MEDAL_EMOJI[['gold', 'silver', 'bronze'].indexOf(x.kind)]).join(' ')}</span>` : ''}</div>
           <div class="spacer"></div>
           ${locked ? `<button class="btn" disabled>🔒 Нужен уровень ${c.level}</button>`
-            : ch ? `<button class="btn" disabled>${ch.id === c.id ? 'Идёт сейчас' : 'Сначала завершите текущий'}</button>`
-              : `<button class="btn primary" data-champ="${c.id}">Начать чемпионат</button>`}
+            : ch || busy ? `<button class="btn" disabled>${ch && ch.id === c.id ? 'Идёт сейчас' : 'Сначала завершите текущий'}</button>`
+              : c.mode === 'dh' && !st.activeDh ? '<button class="btn" data-shop-dh>🛒 Нужен DH-велосипед</button>'
+                : `<button class="btn primary" data-champ="${c.id}">Начать чемпионат</button>`}
         </div></div>`;
     });
     html += '</div>';
@@ -421,7 +530,7 @@
     const medals = st.trophies.medals || [];
     const cups = st.trophies.cups || [];
     const cnt = (k) => medals.filter((m) => m.kind === k).length;
-    const events = [...D.TRACKS.map((t) => ({ id: t.id, name: t.name, mode: 'cycle' })), ...TRI.EVENTS.map((e) => ({ id: e.id, name: e.name, mode: 'tri' }))];
+    const events = [...D.TRACKS.map((t) => ({ id: t.id, name: t.name, mode: 'cycle' })), ...TRI.EVENTS.map((e) => ({ id: e.id, name: e.name, mode: 'tri' })), ...D.DH_TRACKS.map((t) => ({ id: t.id, name: t.name, mode: 'dh' }))];
     const credits = window.BikePhotos.credits();
     root.innerHTML = `
       <div class="section-title"><h2>Трофеи</h2><p>Медали за подиумы в гонках и кубки за чемпионаты.</p></div>
@@ -441,9 +550,9 @@
       <h3>Медали по гонкам</h3>
       <div class="medal-wall">${events.map((e) => {
     const ms = medals.filter((m) => m.event === e.id);
-    const best = e.mode === 'tri' ? st.tri.bestTime[e.id] : st.bestTime[e.id];
+    const best = e.mode === 'tri' ? st.tri.bestTime[e.id] : e.mode === 'dh' ? st.dhBestTime[e.id] : st.bestTime[e.id];
     return `<div class="medal-row ${ms.length ? '' : 'empty'}">
-          <div class="medal-row-head"><span>${e.mode === 'tri' ? '🏊' : '🚴'}</span><b>${esc(e.name)}</b>${best ? `<small>рекорд ${e.mode === 'tri' ? TRI.fmtClock(best) : fmtTime(best)}</small>` : ''}</div>
+          <div class="medal-row-head"><span>${{ tri: '🏊', dh: '🏔️', cycle: '🚴' }[e.mode]}</span><b>${esc(e.name)}</b>${best ? `<small>рекорд ${e.mode === 'tri' ? TRI.fmtClock(best) : fmtTime(best)}</small>` : ''}</div>
           <div class="medal-list">${ms.length ? ['gold', 'silver', 'bronze'].map((k) => { const n = ms.filter((m) => m.kind === k).length; return n ? `<div class="medal-item">${medalSvg(k, String(['gold', 'silver', 'bronze'].indexOf(k) + 1), 40)}<span>×${n}</span></div>` : ''; }).join('') : '<span class="muted" style="font-size:13px">Пока нет медалей</span>'}</div>
         </div>`;
   }).join('')}</div>
@@ -453,8 +562,10 @@
   // ═════════ ПЕРЕД СТАРТОМ ═════════
   function openPrerace(mode, id, champ) {
     const st = UI.state;
-    const bike = D.bikeById(st.active);
-    const o = st.owned[st.active];
+    if (mode === 'dh' && !st.activeDh) { toast('Нужен велосипед для даунхилла — загляните в магазин'); return; }
+    const bid = mode === 'dh' ? st.activeDh : st.active;
+    const bike = D.bikeById(bid);
+    const o = st.owned[bid];
     const el = $('#prerace');
     const champInfo = champ && st.champ ? `<div class="badge hot" style="align-self:flex-start">🏆 ${esc(PR.champById(st.champ.id).name)} · этап ${st.champ.stage + 1}</div>` : '';
     if (mode === 'tri') {
@@ -477,6 +588,27 @@
         b.onclick = () => { st.tri.pacing = b.dataset.pace; commit(); el.querySelectorAll('[data-pace]').forEach((x) => x.classList.toggle('selected', x === b)); };
       });
       $('#pre-autogel', el).onchange = (e) => { st.tri.autoGel = e.target.checked; commit(); };
+    } else if (mode === 'dh') {
+      const t = D.trackById(id);
+      const tr = window.Tracks.get(id);
+      const fc = dhForecast(id);
+      el.innerHTML = `
+        <div class="panel">
+          ${champInfo}
+          <div class="muted">Даунхилл · перепад ${Math.round(tr.descent)} м · ${esc(t.focus)}</div>
+          <h2 style="margin:0">${esc(t.name)}</h2>
+          <div class="prerace-bike"><div class="photo" id="pre-photo"></div>
+            <div><b>${esc(bike.name)}</b><div class="muted" style="font-size:13px">${esc(D.WHEELS[o.wheel].name)}</div>
+              <div style="margin-top:6px">Прогноз: <span class="stars">${starStr(fc.stars)}</span></div>
+              <div class="muted" style="font-size:13px">Спуск ≈ ${fmtTime(fc.lap)} · ${dhFeatures(tr)}</div></div></div>
+          <b>Линия прохождения</b>
+          <div class="tactics">${D.DH_LINES.map((x) => `<button class="tactic ${x.id === st.dhLine ? 'selected' : ''}" data-line="${x.id}"><b>${x.icon} ${esc(x.name)}</b><small>${esc(x.desc)}</small></button>`).join('')}</div>
+          <div class="muted" style="font-size:13px">Велосипед едет сам. На трамплинах и дропах он взлетает: мягкость приземления зависит от подвески и навыка прыжков. ⚡ «Спурт» — разгон педалями на пологих участках.</div>
+          <div class="row" style="margin-top:6px"><button class="btn primary" id="pre-start" style="flex:1">Старт ▶</button><button class="btn" id="pre-cancel">Отмена</button></div>
+        </div>`;
+      el.querySelectorAll('[data-line]').forEach((b) => {
+        b.onclick = () => { st.dhLine = b.dataset.line; commit(); el.querySelectorAll('[data-line]').forEach((x) => x.classList.toggle('selected', x === b)); };
+      });
     } else {
       const t = D.trackById(id);
       const fc = forecast(id, ownedStats(st.active), o.wheel);
@@ -519,8 +651,9 @@
       const b = D.bikeById(id);
       const btn = document.createElement('button');
       btn.className = 'garage-item' + (id === UI.garageSel ? ' selected' : '');
+      const inUse = id === st.active ? ' · <span style="color:var(--good)">в гонке</span>' : id === st.activeDh ? ' · <span style="color:var(--good)">на спусках</span>' : '';
       btn.innerHTML = `<div class="thumb"><div class="photo"></div></div>
-        <div><div style="font-weight:700">${esc(b.name)}</div><div class="muted" style="font-size:12px">${D.BIKE_TYPES[b.type]}${id === st.active ? ' · <span style="color:var(--good)">в гонке</span>' : ''}</div></div>`;
+        <div><div style="font-weight:700">${esc(b.name)}</div><div class="muted" style="font-size:12px">${D.BIKE_TYPES[b.type]}${inUse}</div></div>`;
       window.BikePhotos.attach($('.photo', btn), b);
       btn.onclick = () => { UI.garageSel = id; render(); };
       list.appendChild(btn);
@@ -538,7 +671,7 @@
     const bike = D.bikeById(id);
     const o = UI.state.owned[id];
     let invested = 0;
-    D.UPGRADES.forEach((up) => { for (let l = 0; l < (o.upgrades[up.id] || 0); l++) invested += GS.upgradePrice(id, up.id, l); });
+    (bike.dh ? D.DH_UPGRADES : D.UPGRADES).forEach((up) => { for (let l = 0; l < (o.upgrades[up.id] || 0); l++) invested += GS.upgradePrice(id, up.id, l); });
     return Math.round((bike.price * 0.5 + invested * 0.4) / 10) * 10;
   }
   function confirmSell(id) {
@@ -552,6 +685,7 @@
         <div class="photo" id="sell-photo" style="border-radius:12px"></div>
         <div>Вы получите <b>${fmtMoney(value)}</b>: половину цены велосипеда и 40% стоимости его улучшений. Колёса остаются у вас.</div>
         ${id === st.active ? '<div class="muted" style="font-size:13px">Это ваш гоночный велосипед — для гонок будет выбран другой из гаража.</div>' : ''}
+        ${id === st.activeDh ? '<div class="muted" style="font-size:13px">Это ваш DH-велосипед — для спусков будет выбран другой (если он есть).</div>' : ''}
         <div class="row" style="margin-top:6px"><button class="btn danger" id="sell-ok" style="flex:1">Продать</button><button class="btn" id="sell-cancel">Отмена</button></div>
       </div>`;
     window.BikePhotos.attach($('#sell-photo', el), bike, st.owned[id].wheel);
@@ -560,13 +694,13 @@
     $('#sell-cancel', el).onclick = close;
     el.onclick = (e) => { if (e.target === el) close(); };
     $('#sell-ok', el).onclick = () => {
-      if (Object.keys(st.owned).length <= 1) { close(); return; }
+      if (!canSell(id)) { close(); return; }
       delete st.owned[id];
       st.money += value;
-      if (st.active === id) {
-        // Выбираем самый дорогой из оставшихся велосипедов.
-        st.active = Object.keys(st.owned).sort((a, b) => D.bikeById(b).price - D.bikeById(a).price)[0];
-      }
+      // Выбираем самый дорогой из оставшихся велосипедов того же вида.
+      const pick = (dh) => Object.keys(st.owned).filter((x) => !!D.bikeById(x).dh === dh).sort((a, b) => D.bikeById(b).price - D.bikeById(a).price)[0] || null;
+      if (st.active === id) st.active = pick(false);
+      if (st.activeDh === id) st.activeDh = pick(true);
       UI.garageSel = st.active;
       commit(true);
       close();
@@ -575,13 +709,20 @@
     };
   }
 
+  // Последний обычный велосипед продать нельзя (без него не поехать на гонки и триатлон).
+  function canSell(id) {
+    const st = UI.state;
+    if (D.bikeById(id).dh) return true;
+    return Object.keys(st.owned).filter((x) => !D.bikeById(x).dh).length > 1;
+  }
+
   function wheelChips(w) {
-    const keys = ['asphalt', 'cobble', 'gravel', 'dirt', 'sand', 'snow'];
+    const keys = w.size === 'dh' ? ['dirt', 'rock', 'cobble', 'stairs', 'wood', 'asphalt'] : ['asphalt', 'cobble', 'gravel', 'dirt', 'sand', 'snow'];
     const roll = keys.map((k) => {
       const v = Math.round(w.roll[k] * 100);
       return `<span class="chip ${v >= 90 ? 'good' : v < 60 ? 'bad' : ''}" title="Накат">${D.SURFACES[k].name.split(' ')[0]} ${v}%</span>`;
     }).join('');
-    const mods = Object.entries(w.mods).map(([k, v]) => `<span class="chip ${v > 0 ? 'good' : 'bad'}">${D.STAT_NAMES[k]} ${v > 0 ? '+' : ''}${v}</span>`).join('');
+    const mods = Object.entries(w.mods).map(([k, v]) => `<span class="chip ${v > 0 ? 'good' : 'bad'}">${(w.size === 'dh' ? D.DH_STAT_NAMES : D.STAT_NAMES)[k]} ${v > 0 ? '+' : ''}${v}</span>`).join('');
     return `<div class="chips">${roll}${mods}</div>`;
   }
 
@@ -589,7 +730,9 @@
     const st = UI.state;
     const bike = D.bikeById(id);
     const o = st.owned[id];
-    const stats = GS.effectiveStats(id, o.upgrades, o.wheel, st.rider.skills, st.perks);
+    const dh = !!bike.dh;
+    const stats = dh ? ownedDhStats(id) : GS.effectiveStats(id, o.upgrades, o.wheel, st.rider.skills, st.perks);
+    const inUse = dh ? id === st.activeDh : id === st.active;
     el.innerHTML = `
       <div class="detail-head">
         <div class="photo" id="dphoto"></div>
@@ -597,20 +740,20 @@
           <div class="muted" style="font-weight:700;letter-spacing:1px">${esc(bike.brand.toUpperCase())}${bike.maker ? ` · ${esc(bike.maker)}` : ''}</div>
           <div class="row"><h2 style="margin:0">${esc(bike.model)}</h2><span class="badge">${D.BIKE_TYPES[bike.type]}</span></div>
           <div class="muted">${esc(bike.desc)}</div>
-          ${statBars(stats, bike.stats)}
+          ${statBars(stats, dh ? bike.dhStats : bike.stats, dh)}
           <div class="row">
-            ${id === st.active ? '<span class="badge hot">Выбран для гонок</span>' : '<button class="btn primary" id="btn-activate">Выбрать для гонок</button>'}
-            ${Object.keys(st.owned).length > 1 ? `<button class="btn danger" id="btn-sell">Продать · ${fmtMoney(sellValue(id))}</button>` : ''}
+            ${inUse ? `<span class="badge hot">${dh ? 'Выбран для даунхилла' : 'Выбран для гонок'}</span>` : `<button class="btn primary" id="btn-activate">${dh ? 'Выбрать для даунхилла' : 'Выбрать для гонок'}</button>`}
+            ${canSell(id) ? `<button class="btn danger" id="btn-sell">Продать · ${fmtMoney(sellValue(id))}</button>` : ''}
             <span class="muted" style="font-size:12px">Синий — база, оранжевый — улучшения, колёса, тренировки и навыки</span>
           </div>
         </div>
       </div>
       <section><h3>Колёса и покрышки <span class="muted" style="font-size:13px;font-weight:500">· посадка: ${bike.sizes.map((s) => D.WHEEL_SIZE_NAMES[s]).join(', ')}</span></h3><div class="upgrades" id="wheels"></div></section>
-      <section><h3>Улучшения</h3><div class="upgrades" id="ups"></div></section>
-      <section><h3>Прогноз по трассам</h3><div class="forecast" id="fc"></div></section>`;
+      <section><h3>${dh ? 'Улучшения для даунхилла' : 'Улучшения'}</h3><div class="upgrades" id="ups"></div></section>
+      <section><h3>${dh ? 'Прогноз по трассам даунхилла' : 'Прогноз по трассам'}</h3><div class="forecast" id="fc"></div></section>`;
     window.BikePhotos.attach($('#dphoto', el), bike, o.wheel);
     const act = $('#btn-activate', el);
-    if (act) act.onclick = () => { st.active = id; commit(); toast(`${bike.name} — готов к старту`); render(); };
+    if (act) act.onclick = () => { if (dh) st.activeDh = id; else st.active = id; commit(); toast(`${bike.name} — готов к старту`); render(); };
     const sell = $('#btn-sell', el);
     if (sell) sell.onclick = () => confirmSell(id);
 
@@ -645,7 +788,7 @@
     });
 
     const ul = $('#ups', el);
-    D.UPGRADES.forEach((up) => {
+    (dh ? D.DH_UPGRADES : D.UPGRADES).forEach((up) => {
       const lvl = o.upgrades[up.id];
       const max = lvl >= D.MAX_UPGRADE;
       const price = max ? 0 : GS.upgradePrice(id, up.id, lvl);
@@ -653,7 +796,7 @@
       div.className = 'upgrade';
       div.innerHTML = `
         <div class="row"><span style="font-size:20px">${up.icon}</span><b>${esc(up.name)}</b></div>
-        <div class="chips">${Object.entries(up.mods).map(([k, v]) => `<span class="chip good">${D.STAT_NAMES[k]} +${v}/ур.</span>`).join('')}</div>
+        <div class="chips">${Object.entries(up.mods).map(([k, v]) => `<span class="chip good">${(dh ? D.DH_STAT_NAMES : D.STAT_NAMES)[k]} +${v}/ур.</span>`).join('')}</div>
         <div class="row"><div class="pips">${Array.from({ length: D.MAX_UPGRADE }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</div>
           <span class="spacer"></span>
           ${max ? '<span class="badge">Максимум</span>' : `<button class="btn small gold" ${st.money < price ? 'disabled' : ''}>Улучшить ${fmtMoney(price)}</button>`}
@@ -670,8 +813,9 @@
     });
 
     const fc = $('#fc', el);
-    D.TRACKS.forEach((t) => {
-      const f = forecast(t.id, stats, o.wheel);
+    const phys = dh ? GS.dhPhysicsStats(stats) : stats;
+    (dh ? D.DH_TRACKS : D.TRACKS).forEach((t) => {
+      const f = forecast(t.id, phys, o.wheel);
       const row = document.createElement('div');
       row.innerHTML = `<span>${esc(t.name)}</span><span><span class="stars">${starStr(f.stars)}</span> <span class="muted">${fmtTime(f.lap)}</span></span>`;
       fc.appendChild(row);
@@ -683,12 +827,14 @@
     const st = UI.state;
     root.innerHTML = `
       <div class="section-title"><h2>Магазин велосипедов</h2><p>Только реальные бренды и модели. Каждая сильна в своём. Фото — с Wikimedia Commons, только при точном совпадении бренда и модели; иначе показана модель велосипеда.</p></div>
-      <div class="grid" id="shop-grid"></div>`;
-    const grid = $('#shop-grid', root);
+      <div class="grid" id="shop-grid"></div>
+      <div class="section-title" id="shop-dh"><h2>🏔️ Даунхилл</h2><p>Специальные двухподвесы для спусков: ход 200 мм, двухкоронная вилка, длинная база. Едут только в дисциплине «Даунхилл», у них свои характеристики, покрышки и улучшения.</p></div>
+      <div class="grid" id="shop-grid-dh"></div>`;
+    const grid = $('#shop-grid', root), gridDh = $('#shop-grid-dh', root);
     D.BIKES.forEach((b) => {
       const owned = !!st.owned[b.id];
       const card = document.createElement('div');
-      card.className = 'card' + (b.id === st.active ? ' selected' : '');
+      card.className = 'card' + (b.id === st.active || b.id === st.activeDh ? ' selected' : '');
       card.innerHTML = `
         <div class="photo"></div>
         <div class="body">
@@ -697,7 +843,7 @@
           <div class="row"><span class="badge">${D.BIKE_TYPES[b.type]}</span><span class="badge">${D.WHEEL_SIZE_NAMES[D.WHEELS[b.stockWheel].size]}</span><span class="badge">Класс ${ROMAN[b.tier - 1]}</span></div>
           <div class="muted" style="font-size:13px">${esc(b.desc)}</div>
           <div style="font-size:13px"><b>Сильные стороны:</b> ${strengths(b)}</div>
-          ${statBars(b.stats)}
+          ${b.dh ? statBars(b.dhStats, null, true) : statBars(b.stats)}
           <div class="spacer"></div>
           <div class="row"><b style="font-size:18px">${b.price ? fmtMoney(b.price) : 'Бесплатно'}</b><span class="spacer"></span>
             ${owned ? '<button class="btn" data-own>В гараже ›</button>' : `<button class="btn gold" data-buy ${st.money < b.price ? 'disabled' : ''}>Купить</button>`}
@@ -709,7 +855,7 @@
         if (st.money < b.price) return;
         st.money -= b.price;
         GS.grantBike(st, b.id);
-        st.active = b.id;
+        if (b.dh) st.activeDh = b.id; else st.active = b.id;
         UI.garageSel = b.id;
         commit(true);
         toast(`Поздравляем с покупкой: ${b.name}!`);
@@ -717,7 +863,7 @@
       };
       const own = $('[data-own]', card);
       if (own) own.onclick = () => { UI.garageSel = b.id; show('garage'); };
-      grid.appendChild(card);
+      (b.dh ? gridDh : grid).appendChild(card);
     });
   }
 
@@ -730,6 +876,10 @@
     else if (UI.screen === 'trophies') renderTrophies(root);
     else renderShop(root);
     root.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => show(b.dataset.go); });
+    root.querySelectorAll('[data-garage]').forEach((b) => { b.onclick = () => { UI.garageSel = b.dataset.garage; show('garage'); }; });
+    root.querySelectorAll('[data-shop-dh]').forEach((b) => {
+      b.onclick = () => { show('shop'); const h = $('#shop-dh'); if (h) h.scrollIntoView(); };
+    });
     root.querySelectorAll('[data-go-rider]').forEach((b) => { b.onclick = () => { UI.sub.rider = b.dataset.goRider; show('rider'); }; });
     root.querySelectorAll('[data-sub]').forEach((b) => {
       b.onclick = () => { const [g, id] = b.dataset.sub.split(':'); UI.sub[g] = id; render(); };
@@ -751,6 +901,8 @@
   function showResults(race, ctx) {
     const st = UI.state;
     const tri = race.mode === 'tri';
+    const dh = !!race.dh;
+    const mode = tri ? 'tri' : dh ? 'dh' : 'cycle';
     const res = race.results;
     const myIdx = res.findIndex((r) => r.rider.isPlayer);
     const me = res[myIdx];
@@ -764,11 +916,14 @@
     st.races++;
     if (place === 1 && !dnf) st.wins++;
     const xp = PR.addXp(st, dnf ? 20 : PR.raceXp(tier, place, distMult * (ctx.champ ? 1.25 : 1)));
-    const medal = dnf ? null : PR.addMedal(st, place, { event: ev.id, name: ev.name, mode: tri ? 'tri' : 'cycle', time: me.time });
+    const medal = dnf ? null : PR.addMedal(st, place, { event: ev.id, name: ev.name, mode, time: me.time });
     let unlockedNew = null;
     if (tri) {
       if (!dnf && (!st.tri.best[ev.id] || place < st.tri.best[ev.id])) st.tri.best[ev.id] = place;
       if (!dnf && (!st.tri.bestTime[ev.id] || me.time < st.tri.bestTime[ev.id])) st.tri.bestTime[ev.id] = me.time;
+    } else if (dh) {
+      if (!st.dhBest[ev.id] || place < st.dhBest[ev.id]) st.dhBest[ev.id] = place;
+      if (race.player.finished && (!st.dhBestTime[ev.id] || me.time < st.dhBestTime[ev.id])) st.dhBestTime[ev.id] = me.time;
     } else {
       const prevBest = st.best[ev.id];
       if (!prevBest || place < prevBest) st.best[ev.id] = place;
@@ -813,7 +968,7 @@
     el.innerHTML = `
       <div class="panel results">
         <div class="row">${medal ? medalSvg(medal.kind, String(place), 54) : ''}<div class="results-place">${head}</div></div>
-        <div class="muted">${esc(ev.name)} · ${tri ? 'итоговое время' : (race.player.finished ? 'ваше время' : 'расчётное время')} ${timeStr}${!tri && race.player.bestLap ? ` · лучший круг ${fmtTime(race.player.bestLap)}` : ''}</div>
+        <div class="muted">${esc(ev.name)} · ${tri ? 'итоговое время' : (race.player.finished ? 'ваше время' : 'расчётное время')} ${timeStr}${!tri && !dh && race.player.bestLap ? ` · лучший круг ${fmtTime(race.player.bestLap)}` : ''}${dh && race.player.crashes ? ` · падений: ${race.player.crashes}` : ''}</div>
         <div class="reward-row"><span>Приз: <b>${fmtMoney(prize)}</b></span><span>Опыт: <b>+${xp.gained} XP</b></span>${xp.levels ? `<span class="badge hot">🎉 Уровень ${xp.newLevel}! +${fmtMoney(xp.bonus)}</span>` : ''}</div>
         ${unlockedNew ? `<div class="badge hot" style="align-self:flex-start">Открыта трасса «${esc(unlockedNew.name)}»!</div>` : ''}
         ${champHtml}
@@ -822,7 +977,7 @@
           ${rows}
         </table></div>
         <div class="row" style="margin-top:8px">
-          ${champNext ? `<button class="btn primary" id="res-next">Этап ${st.champ.stage + 1}: ${esc(stageName(tri ? 'tri' : 'cycle', champNext))} ▶</button>`
+          ${champNext ? `<button class="btn primary" id="res-next">Этап ${st.champ.stage + 1}: ${esc(stageName(mode, champNext))} ▶</button>`
             : champDone ? '<button class="btn primary" id="res-trophies">🏆 К трофеям</button>'
               : '<button class="btn primary" id="res-again">Ещё раз</button>'}
           <button class="btn" id="res-garage">В гараж</button>
@@ -834,7 +989,7 @@
     const again = $('#res-again', el);
     if (again) again.onclick = () => { close(); ctx.onAgain(); };
     const next = $('#res-next', el);
-    if (next) next.onclick = () => { close(); ctx.onMenu('race'); openPrerace(tri ? 'tri' : 'cycle', champNext, true); };
+    if (next) next.onclick = () => { close(); ctx.onMenu('race'); openPrerace(mode, champNext, true); };
     const tro = $('#res-trophies', el);
     if (tro) tro.onclick = () => { close(); ctx.onMenu('trophies'); };
     $('#res-garage', el).onclick = () => { close(); ctx.onMenu('garage'); };

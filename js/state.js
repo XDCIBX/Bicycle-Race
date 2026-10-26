@@ -10,6 +10,12 @@
     return u;
   }
 
+  function emptyDhUpgrades() {
+    const u = {};
+    D.DH_UPGRADES.forEach((up) => { u[up.id] = 0; });
+    return u;
+  }
+
   function emptySkills() {
     const r = {};
     D.RIDER_SKILLS.forEach((k) => { r[k.id] = 0; });
@@ -33,6 +39,10 @@
       trophies: { medals: [], cups: [] },
       champ: null,
       tri: { skills: emptyTriSkills(), pacing: 'steady', best: {}, bestTime: {} },
+      activeDh: null,
+      dhLine: 'race',
+      dhBest: {},
+      dhBestTime: {},
       owned: {},
       wheels: [],
       best: {},
@@ -46,7 +56,8 @@
 
   function grantBike(s, bikeId) {
     const bike = D.bikeById(bikeId);
-    s.owned[bikeId] = { upgrades: emptyUpgrades(), wheel: bike.stockWheel };
+    s.owned[bikeId] = { upgrades: bike.dh ? emptyDhUpgrades() : emptyUpgrades(), wheel: bike.stockWheel };
+    if (bike.dh && !s.activeDh) s.activeDh = bikeId;
     if (!s.wheels.includes(bike.stockWheel)) s.wheels.push(bike.stockWheel);
   }
 
@@ -62,7 +73,20 @@
         Object.keys(s.owned).forEach((id) => { if (!D.bikeById(id)) delete s.owned[id]; });
         if (Object.keys(s.owned).length === 0) grantBike(s, 'rockrider');
         if (!s.owned[s.active]) s.active = Object.keys(s.owned)[0];
-        Object.values(s.owned).forEach((o) => { o.upgrades = Object.assign(emptyUpgrades(), o.upgrades); });
+        Object.entries(s.owned).forEach(([id, o]) => {
+          const b = D.bikeById(id);
+          o.upgrades = Object.assign(b.dh ? emptyDhUpgrades() : emptyUpgrades(), o.upgrades);
+          // Неизвестные или неподходящие колёса (из старых версий) — заменяем штатными.
+          if (!D.WHEELS[o.wheel] || !b.sizes.includes(D.WHEELS[o.wheel].size)) o.wheel = b.stockWheel;
+        });
+        // Для обычных гонок — только обычный велосипед; для даунхилла — отдельный DH.
+        if (D.bikeById(s.active).dh) {
+          const reg = Object.keys(s.owned).find((id) => !D.bikeById(id).dh);
+          if (reg) s.active = reg; else { grantBike(s, 'rockrider'); s.active = 'rockrider'; }
+        }
+        if (!s.activeDh || !s.owned[s.activeDh]) s.activeDh = Object.keys(s.owned).find((id) => D.bikeById(id).dh) || null;
+        if (!D.DH_LINES.some((l) => l.id === s.dhLine)) s.dhLine = 'race';
+        s.dhBest = s.dhBest || {}; s.dhBestTime = s.dhBestTime || {};
         s.rider = Object.assign({ name: 'Вы' }, s.rider);
         s.rider.skills = Object.assign(emptySkills(), s.rider.skills);
         if (!D.TACTICS.some((t) => t.id === s.tactic)) s.tactic = 'steady';
@@ -140,9 +164,38 @@
     return Math.round(sk.base * Math.pow(level + 1, 1.5) / 10) * 10;
   }
 
+  // ── Даунхилл: итоговые DH-характеристики ──
+  function dhStats(bikeId, upgrades, wheelId, riderSkills, perks) {
+    const bike = D.bikeById(bikeId);
+    const out = Object.assign({}, bike.dhStats);
+    D.DH_UPGRADES.forEach((up) => {
+      const lvl = (upgrades && upgrades[up.id]) || 0;
+      Object.entries(up.mods).forEach(([k, v]) => { out[k] += v * lvl; });
+    });
+    const wheel = D.WHEELS[wheelId || bike.stockWheel];
+    Object.entries(wheel.mods).forEach(([k, v]) => { if (out[k] != null) out[k] += v; });
+    if (riderSkills) {
+      out.speed += (riderSkills.power || 0);
+      out.handling += 2 * (riderSkills.technique || 0);
+      out.stability += (riderSkills.technique || 0);
+    }
+    if (perks && perks.length && window.Progression) {
+      Object.entries(window.Progression.perkEffects(perks).dh || {}).forEach(([k, v]) => { out[k] += v; });
+    }
+    D.DH_STAT_KEYS.forEach((k) => { out[k] = clamp(out[k], 1, 120); });
+    return out;
+  }
+  // Перевод DH-характеристик в параметры физической модели гонки.
+  function dhPhysicsStats(dh) {
+    return {
+      speed: dh.speed, accel: Math.round(dh.speed * 0.5 + dh.jump * 0.5), handling: dh.handling, brakes: dh.brakes,
+      climb: 12, offroad: dh.suspension, stability: dh.stability, jump: dh.jump, suspension: dh.suspension,
+    };
+  }
+
   function upgradePrice(bikeId, upId, level) {
     const bike = D.bikeById(bikeId);
-    const up = D.UPGRADES.find((u) => u.id === upId);
+    const up = D.UPGRADES.find((u) => u.id === upId) || D.DH_UPGRADES.find((u) => u.id === upId);
     const raw = up.base * (1 + (bike.tier - 1) * 0.35) * Math.pow(level + 1, 1.45);
     return Math.round(raw / 10) * 10;
   }
@@ -173,10 +226,21 @@
       return clamp(1 - slope * 3.4 * this.climbFactor(stats), 0.42, 1.35);
     },
     kmh(v) { return v * 2.25; },
+    // Спуск: скорость задаёт гравитация (уклон) и устойчивость, тряску гасит подвеска.
+    dhVmax(stats, wheelId, surface, slope) {
+      const w = D.WHEELS[wheelId];
+      const s = D.SURFACES[surface];
+      const rough = s.rough * (1 - stats.offroad / 115);
+      const roll = (w.roll[surface] != null ? w.roll[surface] : 0.9);
+      const down = Math.max(0, -slope);
+      const v = (7 + stats.speed * 0.08 + down * (55 + stats.stability * 0.3)) * roll * (1 - rough * 0.45);
+      const cap = (16 + stats.stability * 0.2) * (1 - rough * 0.2);
+      return Math.min(v, cap);
+    },
   };
 
   window.GameState = {
     load, save, newGame, grantBike, effectiveStats, upgradePrice, wheelFits, Physics, clamp,
-    riderProfile, riderLevel, trainingPrice,
+    riderProfile, riderLevel, trainingPrice, dhStats, dhPhysicsStats,
   };
 })();

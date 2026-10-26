@@ -59,7 +59,16 @@
     const profile = GS.riderProfile(skills, state.perks);
     const champ = opts.champ && state.champ ? PR.champById(state.champ.id) : null;
     const extra = champ ? { roster: state.champ.roster, tier: champ.tier } : {};
-    if (opts.mode === 'tri') {
+    if (opts.mode === 'dh') {
+      // Даунхилл: свой велосипед (DH-байк), свои характеристики и линия прохождения.
+      const id = state.activeDh;
+      if (!id || !state.owned[id]) { window.UI.toast('Нужен велосипед для даунхилла — загляните в магазин'); return; }
+      const od = state.owned[id];
+      const dstats = GS.dhPhysicsStats(GS.dhStats(id, od.upgrades, od.wheel, skills, state.perks));
+      race = new window.RaceEngine.Race(opts.id, {
+        bikeId: id, wheel: od.wheel, stats: dstats, profile, tactic: 'steady', line: state.dhLine || 'race', name: state.rider.name || 'Вы',
+      }, extra);
+    } else if (opts.mode === 'tri') {
       race = new TRI.TriRace(opts.id, {
         name: state.rider.name || 'Вы', bikeId: state.active, wheel: o.wheel, stats, skill: profile.skill,
         tri: TRI.triProfile(state.tri.skills, state.perks), pace: state.tri.pacing || 'steady', autoGel: state.tri.autoGel !== false,
@@ -158,7 +167,8 @@
     const p = race.player;
     const P = GS.Physics;
     setText('hud-pos', String(p.place));
-    setText('hud-lap', `Круг ${Math.min(race.laps, Math.max(1, p.lap + 1))}/${race.laps}`);
+    setText('hud-lap', race.dh ? `🏔️ ${Math.round(race.fraction(p) * 100)}% · ↓${Math.max(0, Math.round(p.z - race.track.samples[race.track.finishIdx].z))} м`
+      : `Круг ${Math.min(race.laps, Math.max(1, p.lap + 1))}/${race.laps}`);
     setText('hud-time', window.UI.fmtTime(race.time));
     setText('hud-speed', String(Math.round(P.kmh(p.v))));
     $('hud-speed').nextElementSibling.textContent = 'км/ч';
@@ -166,13 +176,15 @@
     $('hud-energy').style.width = (p.energy / p.profile.energyMax * 100) + '%';
     const tac = D.TACTICS.find((t) => t.id === p.tactic);
     const sprintOn = p.sprintHold > 0;
-    setText('hud-tactic', sprintOn ? '⚡ СПУРТ!' : `${tac.icon} ${tac.name}${p.drafting ? ' · на колесе' : ''}`);
+    const ln = p.dhLine;
+    setText('hud-tactic', sprintOn ? '⚡ СПУРТ!' : ln ? `${ln.icon} ${ln.name}${p.air ? ' · ✈️ полёт' : p.crash > 0 ? ' · 💥' : ''}` : `${tac.icon} ${tac.name}${p.drafting ? ' · на колесе' : ''}`);
     $('hud-tactic').classList.toggle('sprint', sprintOn);
     $('btn-sprint').disabled = p.energy < p.profile.energyMax * 0.08 || race.state !== 'racing' || p.finished;
     const surf = D.SURFACES[p.surface];
     setText('hud-surf', p.onRoad ? surf.name : `Вне трассы (${surf.name.toLowerCase()})`);
     $('hud-surf-dot').style.background = surf.color;
-    const slope = race.track.samples[p.idx].slope * Math.cos(p.heading - race.track.samples[p.idx].ang);
+    const sp = race.track.samples[p.idx];
+    const slope = (race.dh ? sp.grade : sp.slope) * Math.cos(p.heading - sp.ang);
     setText('hud-slope', Math.abs(slope) > 0.02 ? ` ${slope > 0 ? '↗' : '↘'} ${Math.round(Math.abs(slope) * 100)}%` : '');
     let center = '';
     if (race.state === 'countdown') center = race.countdown > 3 ? 'Приготовьтесь' : String(Math.ceil(race.countdown));

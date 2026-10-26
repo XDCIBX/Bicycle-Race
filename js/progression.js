@@ -17,6 +17,7 @@
     { id: 'tech', name: 'Технарь', icon: '🌲', color: '#c58b4a' },
     { id: 'tact', name: 'Тактик', icon: '🧠', color: '#8f7bff' },
     { id: 'tri', name: 'Триатлет', icon: '🏊', color: '#33b5ff' },
+    { id: 'dh', name: 'Даунхиллер', icon: '🏔️', color: '#ff8a3d' },
   ];
   const PERKS = [
     { id: 'sp1', branch: 'sprint', name: 'Взрывной старт', level: 2, cost: 1, mods: { accel: 4 }, desc: 'Разгон +4' },
@@ -40,6 +41,10 @@
     { id: 'tr3', branch: 'tri', name: 'Беговая экономичность', level: 10, req: 'tr2', cost: 1, tri: { run: 0.04 }, desc: 'Бег +4%' },
     { id: 'tr4', branch: 'tri', name: 'Нутрициолог', level: 14, req: 'tr3', cost: 2, tri: { gels: 1, gelPower: 0.25 }, desc: '+1 гель, гели на 25% сильнее' },
     { id: 'tr5', branch: 'tri', name: 'Железный человек', level: 22, req: 'tr4', cost: 2, tri: { glycogen: 0.2 }, desc: 'Запас гликогена +20%' },
+    { id: 'dh1', branch: 'dh', name: 'Чтение рельефа', level: 2, cost: 1, dh: { handling: 4 }, desc: 'DH: управляемость +4' },
+    { id: 'dh2', branch: 'dh', name: 'Без тормозов', level: 6, req: 'dh1', cost: 1, dh: { speed: 4 }, desc: 'DH: скорость на спуске +4' },
+    { id: 'dh3', branch: 'dh', name: 'Мягкое приземление', level: 10, req: 'dh2', cost: 1, dh: { jump: 6, suspension: 2 }, desc: 'DH: прыжки +6, подвеска +2' },
+    { id: 'dh4', branch: 'dh', name: 'Бесстрашие', level: 16, req: 'dh3', cost: 2, dh: { stability: 6, speed: 3 }, desc: 'DH: устойчивость +6, скорость +3' },
   ];
 
   // ── Чемпионаты ───────────────────────────────────────────────
@@ -53,6 +58,9 @@
     { id: 'trisprint', name: 'Серия спринт-триатлона', mode: 'tri', level: 3, tier: 2, prize: 3000, color: '#33b5ff', stages: ['supersprint', 'sprint', 'olympic'] },
     { id: 'tri703', name: 'Серия Ironman 70.3', mode: 'tri', level: 12, tier: 4, prize: 7000, color: '#ff8a00', stages: ['olympic', 'half', 'half'] },
     { id: 'kona', name: 'Чемпионат мира Ironman · Кона', mode: 'tri', level: 20, tier: 5, prize: 15000, color: '#e0262f', stages: ['half', 'ironman'] },
+    { id: 'dhcup', name: 'Кубок новичков DH', mode: 'dh', level: 2, tier: 1, prize: 2000, color: '#ff8a3d', stages: ['dh_forest', 'dh_urban'] },
+    { id: 'urbanseries', name: 'Серия городских спусков', mode: 'dh', level: 6, tier: 2, prize: 4000, color: '#c13584', stages: ['dh_urban', 'dh_oldtown', 'dh_urban'] },
+    { id: 'dhworld', name: 'Кубок мира по даунхиллу', mode: 'dh', level: 14, tier: 4, prize: 12000, color: '#2b61c9', stages: ['dh_forest', 'dh_oldtown', 'dh_alpine', 'dh_urban', 'dh_canyon'] },
   ];
 
   // ── Опыт и уровни ────────────────────────────────────────────
@@ -88,11 +96,11 @@
 
   // Сумма эффектов купленных навыков.
   function perkEffects(perks) {
-    const out = { mods: {}, prof: {}, tri: {} };
+    const out = { mods: {}, prof: {}, tri: {}, dh: {} };
     (perks || []).forEach((id) => {
       const p = PERKS.find((x) => x.id === id);
       if (!p) return;
-      ['mods', 'prof', 'tri'].forEach((k) => {
+      ['mods', 'prof', 'tri', 'dh'].forEach((k) => {
         Object.entries(p[k] || {}).forEach(([kk, v]) => { out[k][kk] = (out[k][kk] || 0) + v; });
       });
     });

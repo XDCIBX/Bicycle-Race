@@ -43,12 +43,16 @@
     const pts = def.points;
     const n = pts.length;
     // 1. Плотная выборка сплайна.
+    // Открытая трасса (даунхилл: старт наверху, финиш внизу) не замыкается в кольцо.
+    const open = !!def.open;
     const dense = [];
-    for (let i = 0; i < n; i++) {
-      const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+    const ext = (a, b) => [2 * a[0] - b[0], 2 * a[1] - b[1], 2 * a[2] - b[2]];
+    const P = (i) => (open ? (i < 0 ? ext(pts[0], pts[1]) : i >= n ? ext(pts[n - 1], pts[n - 2]) : pts[i]) : pts[(i + n) % n]);
+    for (let i = 0; i < (open ? n - 1 : n); i++) {
+      const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
       for (let k = 0; k < 40; k++) dense.push(catmullRom(p0, p1, p2, p3, k / 40));
     }
-    dense.push(dense[0]);
+    dense.push(open ? pts[n - 1].slice() : dense[0]);
     // 2. Равномерная перевыборка по длине дуги.
     let total = 0;
     const cum = [0];
@@ -67,20 +71,45 @@
       const a = dense[j], b = dense[j + 1];
       samples.push({ x: a[0] + (b[0] - a[0]) * k, y: a[1] + (b[1] - a[1]) * k, z: a[2] + (b[2] - a[2]) * k, s });
     }
+    if (open) samples.push({ x: dense[dense.length - 1][0], y: dense[dense.length - 1][1], z: dense[dense.length - 1][2], s: total });
     const L = total;
     const N = samples.length;
     const hw = def.width / 2;
+    // Индекс соседнего сэмпла: на кольце — по кругу, на открытой трассе — с упором в края.
+    const W = open ? (i) => (i < 0 ? 0 : i >= N ? N - 1 : i) : (i) => ((i % N) + N) % N;
+    const S = (s) => samples[W(Math.floor((open ? Math.max(0, Math.min(L - 1e-6, s)) : (((s % L) + L) % L)) / step))];
+    // Финиш открытой трассы — за 25 единиц до конца сплайна (дальше — зона торможения).
+    const finishS = open ? L - 25 : 0;
+    const finishIdx = W(Math.floor(finishS / step));
+    samples.forEach((p, i) => { p.idx = i; });
+    // Элементы даунхилла: лестницы, уступы (дропы) и трамплины.
+    for (const f of def.features || []) {
+      if (f.type === 'stairs') {
+        const a = f.a * L, b = f.b * L;
+        samples.forEach((p) => {
+          p.z -= f.h * Math.max(0, Math.min(1, (p.s - a) / (b - a)));
+          if (p.s >= a && p.s < b) p.stairs = true;
+        });
+      } else if (f.type === 'drop') {
+        const a = f.at * L;
+        samples.forEach((p) => { if (p.s >= a) p.z -= f.h; });
+        S(a).drop = f.h;
+        S(a - step).dropLip = true;
+      } else if (f.type === 'kicker') {
+        S(f.at * L).kicker = true;
+      }
+    }
     // 3. Направления, нормали, наклон, кривизна, покрытие.
     for (let i = 0; i < N; i++) {
-      const a = samples[(i - 1 + N) % N], b = samples[(i + 1) % N], p = samples[i];
+      const a = samples[W(i - 1)], b = samples[W(i + 1)], p = samples[i];
       p.ang = Math.atan2(b.y - a.y, b.x - a.x);
       p.nx = -Math.sin(p.ang); p.ny = Math.cos(p.ang); // нормаль влево
-      p.slope = (b.z - a.z) / (2 * step);
+      p.slope = (b.z - a.z) / ((b.s - a.s + L) % L || 2 * step);
       p.surface = surfaceAt(def, p.s / L);
     }
     for (let i = 0; i < N; i++) {
       const k = 4;
-      const a = samples[(i - k + N) % N], b = samples[(i + k) % N];
+      const a = samples[W(i - k)], b = samples[W(i + k)];
       let d = b.ang - a.ang;
       while (d > Math.PI) d -= 2 * Math.PI;
       while (d < -Math.PI) d += 2 * Math.PI;
@@ -90,9 +119,31 @@
     // Сглаженная кривизна (максимум по окрестности) — для ИИ и оценок.
     for (let i = 0; i < N; i++) {
       let m = 0;
-      for (let k = -3; k <= 3; k++) m = Math.max(m, samples[(i + k + N) % N].curv);
+      for (let k = -3; k <= 3; k++) m = Math.max(m, samples[W(i + k)].curv);
       samples[i].curvMax = m;
     }
+    // Средний уклон без учёта дропов (по нему гравитация разгоняет на спуске).
+    let dropSum = 0;
+    const zg = samples.map((p) => { if (p.drop) dropSum += p.drop; return p.z + dropSum; });
+    for (let i = 0; i < N; i++) {
+      const a = W(i - 5), b = W(i + 5);
+      samples[i].grade = (zg[b] - zg[a]) / ((samples[b].s - samples[a].s + L) % L || step);
+    }
+    // Рельеф: склон поднимается с одной стороны дороги и уходит вниз с другой.
+    const relief = (D.ENVIRONMENTS[def.env].relief || 0) * 7;
+    const rs = (hashStr(def.id) % 1000) / 160;
+    samples.forEach((p) => {
+      const b = relief ? Math.sin(p.s * 0.009 + rs) * 0.75 + Math.sin(p.s * 0.023 + rs * 2) * 0.35 : 0;
+      p.bankL = relief * b; p.bankR = -relief * b * 0.8;
+    });
+    const BANK0 = hw + 2.4, BANKW = 12;
+    // Высота склона над полотном на расстоянии lat от оси (lat > 0 — слева).
+    const bankZ = (p, lat) => {
+      const d = Math.abs(lat) - BANK0;
+      if (d <= 0 || !relief) return 0;
+      const t = Math.min(1, d / BANKW);
+      return (lat > 0 ? p.bankL : p.bankR) * t * t * (3 - 2 * t);
+    };
 
     // 4. Пространственная сетка для поиска ближайшей точки.
     const CELL = 24;
@@ -129,7 +180,7 @@
         let bd = Infinity;
         idx = hint;
         for (let k = -12; k <= 12; k++) {
-          const i = (hint + k + N) % N;
+          const i = W(hint + k);
           const d = (samples[i].x - x) ** 2 + (samples[i].y - y) ** 2;
           if (d < bd) { bd = d; idx = i; }
         }
@@ -139,7 +190,7 @@
       const p = samples[idx];
       const lat = (x - p.x) * p.nx + (y - p.y) * p.ny;
       const lon = (x - p.x) * Math.cos(p.ang) + (y - p.y) * Math.sin(p.ang);
-      return { idx, lat, s: (p.s + lon + L) % L };
+      return { idx, lat, s: open ? Math.max(0, Math.min(L, p.s + lon)) : (p.s + lon + L) % L };
     }
 
     // 5. Декорации и мелкие детали (детерминированно для каждой трассы).
@@ -195,12 +246,12 @@
       const x = p.x + p.nx * off * side + (rnd() - 0.5) * 6;
       const y = p.y + p.ny * off * side + (rnd() - 0.5) * 6;
       if (!clearOf(x, y, 0.3) || inLake(x, y, 1)) continue;
-      decals.push({ x, y, z: p.z, r: 0.12 + rnd() * rnd() * 0.9, c: env.decal[Math.floor(rnd() * env.decal.length)], k: rnd() });
+      decals.push({ x, y, z: p.z + bankZ(p, off * side), r: 0.12 + rnd() * rnd() * 0.9, c: env.decal[Math.floor(rnd() * env.decal.length)], k: rnd() });
     }
 
     // Крупные объекты по обе стороны.
-    const stepObj = 7 / env.density;
-    for (let s = 0; s < L; s += stepObj * (0.6 + rnd() * 0.8)) {
+    const stepObj = 7 / (env.density || 1);
+    for (let s = 0; s < L && env.scenery.length; s += stepObj * (0.6 + rnd() * 0.8)) {
       const p = samples[Math.floor(s / step) % N];
       for (const side of [-1, 1]) {
         if (rnd() < 0.35) continue;
@@ -210,7 +261,8 @@
         const x = p.x + p.nx * off * side, y = p.y + p.ny * off * side;
         const margin = big ? 11 : 3;
         if (!clearOf(x, y, margin) || inLake(x, y, big ? 10 : 2)) continue;
-        const o = { type, x, y, z: p.z, ang: p.ang, seed: rnd(), r: 1 };
+        const o = { type, x, y, z: p.z + bankZ(p, off * side), ang: p.ang, seed: rnd(), r: 1 };
+        if (type === 'mesa') { o.w = 6 + rnd() * 8; o.h = 6 + rnd() * 12; o.r = 6; }
         if (type === 'building') { o.w = 9 + rnd() * 8; o.d = 9 + rnd() * 8; o.h = 6 + rnd() * 10; o.r = 8; }
         if (type === 'house') { o.w = 7 + rnd() * 3; o.d = 6 + rnd() * 3; o.h = 4 + rnd() * 1.5; o.r = 6; }
         if (type === 'dune') { o.w = 9 + rnd() * 9; o.r = 8; }
@@ -227,7 +279,7 @@
       }
     }
     // Зрители у старта и стартовая арка (на воде зрителей нет).
-    for (let i = -14; i <= 14 && !env.water; i++) {
+    for (let i = -14; i <= 14 && !env.water && !open; i++) {
       const p = samples[(i * 2 + N) % N];
       for (const side of [-1, 1]) {
         for (let row = 0; row < 2; row++) {
@@ -237,17 +289,97 @@
         }
       }
     }
-    objects.push({ type: 'gantry', x: samples[0].x, y: samples[0].y, z: samples[0].z, idx: 0 });
+    if (!open) objects.push({ type: 'gantry', x: samples[0].x, y: samples[0].y, z: samples[0].z, idx: 0 });
 
     const at = (s0, lat) => {
-      const p = samples[Math.floor((((s0 % L) + L) % L) / step) % N];
+      const p = S(s0);
       return { p, x: p.x + p.nx * lat, y: p.y + p.ny * lat };
     };
     const segObj = (type, s0, lat, len, extra) => {
       const a = at(s0, lat), b = at(s0 + len, lat);
       objects.push(Object.assign({ type, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: a.p.z, x1: a.x, y1: a.y, x2: b.x, y2: b.y, z2: b.p.z }, extra));
     };
-    if (env.water) {
+    // Даунхилл: стартовая будка наверху, финишная арка и трибуна внизу.
+    // В городе — пёстрые дома вплотную к узким улицам, в горах — лента вдоль трассы и тюки в поворотах.
+    function buildDhScenery() {
+      const cols = ['#e63946', '#1d3557', '#2a9d8f', '#f4a261', '#6a4c93', '#ffb703', '#118ab2', '#ef476f'];
+      const fanAt = (s0, lat) => {
+        const a = at(s0, lat);
+        objects.push({ type: 'fan', x: a.x + (rnd() - 0.5) * 0.6, y: a.y + (rnd() - 0.5) * 0.6, z: a.p.z + bankZ(a.p, lat), seed: rnd(), c: D.BOT_COLORS[Math.floor(rnd() * D.BOT_COLORS.length)] });
+      };
+      const p0 = samples[0];
+      objects.push({ type: 'starthut', x: p0.x - Math.cos(p0.ang) * 1.2, y: p0.y - Math.sin(p0.ang) * 1.2, z: p0.z, ang: p0.ang, w: 2 * hw + 1.2 });
+      objects.push({ type: 'gantry', x: samples[finishIdx].x, y: samples[finishIdx].y, z: samples[finishIdx].z, idx: finishIdx, finish: true });
+      // Трамплины — деревянные кикеры поперёк трассы.
+      samples.forEach((p) => { if (p.kicker) objects.push({ type: 'kicker', x: p.x, y: p.y, z: p.z, ang: p.ang, w: hw * 1.4 }); });
+      // Рекламные щиты у старта и ограждения в финишной зоне.
+      const brands = ['VELO RUSH', 'GRAVITY', 'SEND IT', 'ENERGY', 'DOWNHILL', 'PRO TEAM'];
+      for (let s0 = 6, k = 0; s0 < 44; s0 += 7, k++) {
+        for (const side of [-1, 1]) segObj('banner', s0, side * (hw + 0.9), 6, { text: brands[(k + (side > 0 ? 3 : 0)) % brands.length], c: cols[(k * 3 + (side > 0 ? 1 : 0)) % cols.length] });
+      }
+      for (let s0 = finishS - 70; s0 < L - 2; s0 += 4) {
+        for (const side of [-1, 1]) segObj('barrier', s0, side * (hw + 1.0), 3.8, {});
+      }
+      segObj('grandstand', finishS - 30, hw + 5.5, 24, { seed: rnd() });
+      for (let k = 0; k < 3; k++) {
+        const a = at(finishS - 50 + k * 14, -(hw + 8));
+        objects.push({ type: 'tent', x: a.x, y: a.y, z: a.p.z + bankZ(a.p, -(hw + 8)), ang: a.p.ang, c: cols[k * 2 % cols.length], seed: rnd() });
+      }
+      // Зрители: плотная толпа у финиша и у трамплинов, дропов и лестниц.
+      const hot = [];
+      samples.forEach((p) => { if (p.kicker || p.drop || (p.stairs && !samples[W(p.idx - 1)].stairs)) hot.push(p.s); });
+      const crowd = (a, b, dens) => {
+        for (let s0 = Math.max(0, a); s0 < Math.min(L, b); s0 += 1.5) {
+          for (const side of [-1, 1]) for (let row = 0; row < 2; row++) if (rnd() < dens) fanAt(s0, side * (hw + (env.urban ? 1.2 : 1.8) + row * 1.3));
+        }
+      };
+      crowd(finishS - 68, L - 2, 0.75);
+      hot.forEach((s0) => crowd(s0 - 16, s0 + 10, 0.6));
+      if (env.urban) {
+        // Узкие улочки: дома вплотную, тротуар, фонари; зрители стоят вдоль всей трассы.
+        const pal = def.env === 'oldtown'
+          ? ['#d9b48f', '#c99a6b', '#e3cfa7', '#b9876a', '#d8c3a0', '#a9825f']
+          : ['#e63946', '#f4a261', '#2a9d8f', '#ffb703', '#118ab2', '#ef476f', '#8ecae6', '#90be6d', '#f9c74f', '#577590'];
+        const roofed = def.env === 'oldtown';
+        for (const side of [-1, 1]) {
+          let prev = null;
+          for (let s0 = 2; s0 < L - 4;) {
+            const w = 4.5 + rnd() * 4, d = 6 + rnd() * 3;
+            const lat = side * (hw + 2.3 + d / 2);
+            const a = at(s0 + w / 2, lat), e0 = S(s0), e1 = S(s0 + w);
+            const ok = clearOf(a.x, a.y, 2.0 + d / 2 - 0.4) && (!prev || Math.hypot(a.x - prev.x, a.y - prev.y) > (w + prev.w) * 0.42);
+            if (ok && rnd() > 0.06) {
+              const o = { type: roofed ? 'house' : 'building', x: a.x, y: a.y, z: Math.min(e0.z, e1.z) - 0.2, ang: a.p.ang, w, d, h: (roofed ? 4 : 3.5) + rnd() * 3.5, seed: rnd(), col: pal[Math.floor(rnd() * pal.length)], r: 4 };
+              objects.push(o); prev = o;
+            }
+            s0 += w + 0.3 + (rnd() < 0.12 ? 5 + rnd() * 4 : 0);
+          }
+        }
+        for (let s0 = 10; s0 < L - 10; s0 += 22) {
+          const side = (Math.floor(s0 / 22) % 2) ? 1 : -1;
+          const a = at(s0, side * (hw + 1.9));
+          objects.push({ type: 'lamp', x: a.x, y: a.y, z: a.p.z, seed: rnd() });
+        }
+        crowd(44, finishS - 70, 0.16);
+      } else {
+        // Сигнальная лента на колышках по обе стороны трассы.
+        for (let s0 = 3; s0 < finishS - 70; s0 += 5) {
+          for (const side of [-1, 1]) segObj('tape', s0, side * (hw + 0.6), 5, { c: side > 0 ? '#ff5a1f' : '#f2f2f2' });
+        }
+      }
+      // Тюки соломы на внешней стороне крутых поворотов.
+      for (let i = 0; i < N; i += 2) {
+        const p = samples[i];
+        if (p.curvMax > 0.03 && p.s > 10 && p.s < finishS - 70) {
+          const a = at(p.s, -p.turn * (hw + 1.2));
+          objects.push({ type: 'haybale', x: a.x, y: a.y, z: p.z, seed: rnd() });
+        }
+      }
+    }
+
+    if (open) {
+      buildDhScenery();
+    } else if (env.water) {
       // Плавательная трасса: линии буйков и большие поворотные буи.
       for (let s0 = 0; s0 < L; s0 += 14) {
         for (const side of [-1, 1]) { const a = at(s0, side * (hw + 1)); objects.push({ type: 'buoy', x: a.x, y: a.y, z: 0, big: false, seed: rnd() }); }
@@ -362,11 +494,11 @@
     // Крапинки на полотне (гравий, грунт, песок…).
     samples.forEach((p) => {
       p.specks = [];
-      const cnt = { asphalt: 1, cobble: 0, gravel: 5, dirt: 4, sand: 4, snow: 3, path: 2 }[p.surface] || 0;
+      const cnt = { asphalt: 1, cobble: 0, gravel: 5, dirt: 4, sand: 4, snow: 3, path: 2, rock: 6 }[p.surface] || 0;
       for (let k = 0; k < cnt; k++) {
         const lat = (rnd() * 2 - 1) * hw * 0.95;
         const lon = (rnd() - 0.5) * step;
-        p.specks.push({ lat, lon, r: 0.1 + rnd() * 0.18, l: rnd() });
+        p.specks.push({ lat, lon, r: (0.1 + rnd() * 0.18) * (p.surface === 'rock' ? 2.2 : 1), l: rnd() });
       }
       p.edgeNoise = rnd();
     });
@@ -377,25 +509,41 @@
 
     const zCache = new Map();
     let climb = 0;
-    for (let i = 0; i < N; i++) climb += Math.max(0, samples[(i + 1) % N].z - samples[i].z);
+    for (let i = 0; i < N; i++) climb += Math.max(0, samples[W(i + 1)].z - samples[i].z);
 
     return {
       def, env, samples, N, L, step, hw, objects, decals, lakes, shore, locate, nearestIndex,
       // Высота земли в точке (по ближайшему участку трассы), с кэшем по клеткам.
       groundZ(x, y) {
-        const k = `${Math.round(x / 12)},${Math.round(y / 12)}`;
+        const cs = relief ? 4 : 12;
+        const k = `${Math.round(x / cs)},${Math.round(y / cs)}`;
         let z = zCache.get(k);
-        if (z === undefined) { z = samples[nearestIndex(x, y).idx].z; zCache.set(k, z); }
+        if (z === undefined) {
+          const n = nearestIndex(x, y), p = samples[n.idx];
+          z = p.z + (relief ? bankZ(p, (x - p.x) * p.nx + (y - p.y) * p.ny) : 0);
+          zCache.set(k, z);
+        }
         return z;
       },
-      bounds: { minX, minY, maxX, maxY }, climb,
-      sampleAt(s) { return samples[Math.floor((((s % L) + L) % L) / step) % N]; },
+      bounds: { minX, minY, maxX, maxY }, climb, finishS, finishIdx, bankZ, relief, BANK0, BANKW,
+      descent: samples[0].z - samples[finishIdx].z,
+      // Высота кикера под колесом: въезд по деревянной рампе длиной 3 единицы.
+      rampAt(s) {
+        if (!open) return 0;
+        for (let k = 0; k <= 2; k++) {
+          const q = S(s + k * step);
+          if (q.kicker) return Math.max(0, Math.min(1, 1 - (q.s - s) / 3)) * 0.9;
+        }
+        return 0;
+      },
+
+      sampleAt: S, open,
       // Плавная точка на центральной линии: интерполяция между соседними сэмплами
       // (без неё движение по трассе идёт «ступеньками» по 2 единицы).
       pointAt(s) {
-        const u = (((s % L) + L) % L) / step;
-        const i = Math.floor(u) % N, t = u - Math.floor(u);
-        const a = samples[i], b = samples[(i + 1) % N];
+        const u = (open ? Math.max(0, Math.min(L - 1e-6, s)) : (((s % L) + L) % L)) / step;
+        const i = W(Math.floor(u)), t = u - Math.floor(u);
+        const a = samples[i], b = samples[W(i + 1)];
         let da = b.ang - a.ang;
         while (da > Math.PI) da -= 2 * Math.PI;
         while (da < -Math.PI) da += 2 * Math.PI;
@@ -409,17 +557,32 @@
   function estimateLap(track, stats, wheelId) {
     const P = window.GameState.Physics;
     const N = track.N;
+    const dh = !!track.def.dh;
     const vmax = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       const p = track.samples[i];
       const grip = P.surfaceGrip(stats, wheelId, p.surface);
-      let v = P.topSpeed(stats) * P.surfaceSpeed(stats, wheelId, p.surface) * P.slopeSpeed(stats, p.slope);
+      let v = dh ? P.dhVmax(stats, wheelId, p.surface, p.grade)
+        : P.topSpeed(stats) * P.surfaceSpeed(stats, wheelId, p.surface) * P.slopeSpeed(stats, p.slope);
       if (p.curvMax > 0.002) v = Math.min(v, Math.sqrt(P.latGrip(stats) * grip / p.curvMax));
       vmax[i] = v;
     }
-    // Учёт ограничений разгона/торможения (два прохода).
+    // Учёт ограничений разгона/торможения (два прохода; открытая трасса — один проход со старта с места).
     const v = Float32Array.from(vmax);
-    const a = P.accel(stats) * 0.55, b = P.brake(stats) * 0.7;
+    const b = P.brake(stats) * 0.7;
+    if (dh) {
+      v[0] = 0;
+      for (let i = 1; i < N; i++) {
+        const a = P.accel(stats) * 0.55 + Math.max(0, -track.samples[i].grade) * 14;
+        v[i] = Math.min(v[i], Math.sqrt(v[i - 1] * v[i - 1] + 2 * a * track.step));
+      }
+      for (let i = N - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] * v[i + 1] + 2 * b * track.step));
+      let t = 0;
+      const end = Math.floor(track.finishS / track.step);
+      for (let i = 0; i < end; i++) t += track.step / Math.max(1, v[i]);
+      return t;
+    }
+    const a = P.accel(stats) * 0.55;
     for (let pass = 0; pass < 2; pass++) {
       for (let i = 1; i < N * 2; i++) {
         const c = i % N, pr = (i - 1) % N;

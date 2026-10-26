@@ -87,7 +87,8 @@
       const t = race.focus;
       c.x = t.x; c.y = t.y;
       c.z += (t.z - c.z) * 0.08;
-      if (race.firstFrame) { c.z = t.z; c.a = t.heading; }
+      // Первый кадр или большой скачок высоты (новая трасса, спуск с горы) — без «подлёта» камеры.
+      if (race.firstFrame || Math.abs(t.z - c.z) > 25) { c.z = t.z; c.a = t.heading; }
       let d = t.heading - c.a;
       while (d > Math.PI) d -= 2 * Math.PI;
       while (d < -Math.PI) d += 2 * Math.PI;
@@ -96,6 +97,7 @@
       // Камера ближе к участнику: в триатлоне (пловцы и бегуны) — заметно ближе.
       const zoom = race.camZoom || 0.9;
       c.B = (13 + sp * 4) * zoom; c.H = (14.5 + sp * 3) * zoom;
+      c.pitch = race.camPitch || 0.8;
       c.ca = Math.cos(c.a); c.sa = Math.sin(c.a);
       c.cp = Math.cos(c.pitch); c.sp = Math.sin(c.pitch);
       // Позиция камеры в мире (для отсечения граней зданий).
@@ -128,6 +130,7 @@
       } else ctx.fillStyle = track.env.ground;
       ctx.fillRect(0, 0, this.W, this.Hs);
 
+      this.drawBanks(track);
       this.drawGround(track);
       this.drawLakes(track);
       this.drawShore(track);
@@ -174,6 +177,51 @@
       g.addColorStop(1, 'rgba(0,0,0,0.28)');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, this.W, this.Hs);
+    }
+
+    // Рельеф: склоны по сторонам трассы — с одной стороны гора, с другой обрыв в долину.
+    // Полосы склона освещены «солнцем», поэтому форма местности читается сверху.
+    drawBanks(track) {
+      if (!track.relief) return;
+      const c = this.cam, S = track.samples, N = track.N;
+      const STEP = 3, R2 = (VIEW + 30) * (VIEW + 30);
+      const B0 = track.BANK0, BW = track.BANKW;
+      const lats = this.lowDetail ? [0, 0.5, 1, 2.2] : [0, 0.25, 0.5, 0.75, 1, 2.2];
+      const list = [];
+      for (let i = 0; i < N; i += STEP) {
+        if (track.open && i + STEP >= N) break;
+        const p = S[i];
+        const dx = p.x - c.x, dy = p.y - c.y;
+        if (dx * dx + dy * dy > R2) continue;
+        const d = this.toCam(p.x, p.y, p.z)[2];
+        if (d < -40) continue;
+        list.push({ i, d });
+      }
+      list.sort((a, b) => b.d - a.d);
+      const base = track.env.ground;
+      const strata = track.def.env === 'canyon';
+      for (const q of list) {
+        const a = S[q.i], b = S[track.open ? q.i + STEP : (q.i + STEP) % N];
+        for (const side of [1, -1]) {
+          const hA = side > 0 ? a.bankL : a.bankR;
+          for (let k = 0; k < lats.length - 1; k++) {
+            const l0 = side * (B0 + lats[k] * BW), l1 = side * (B0 + lats[k + 1] * BW);
+            const zA0 = a.z + track.bankZ(a, l0), zA1 = a.z + track.bankZ(a, l1);
+            const zB0 = b.z + track.bankZ(b, l0), zB1 = b.z + track.bankZ(b, l1);
+            // Нормаль склона в плоскости: противоположна направлению подъёма.
+            const g = (zA1 - zA0) / (Math.abs(l1 - l0) || 1);
+            const nx = -g * side * a.nx, ny = -g * side * a.ny;
+            let f = 1 + (nx * 0.55 - ny * 0.65) * 0.9 - Math.abs(g) * 0.12;
+            if (strata && Math.abs(hA) > 1) f *= 1 + ((k + (q.i >> 4)) % 2) * 0.06;
+            f = Math.max(0.6, Math.min(1.35, f));
+            const col = this.colorCache['b' + base + Math.round(f * 40)] || (this.colorCache['b' + base + Math.round(f * 40)] = shade(base, Math.round(f * 40) / 40));
+            this.poly([
+              [a.x + a.nx * l0, a.y + a.ny * l0, zA0], [a.x + a.nx * l1, a.y + a.ny * l1, zA1],
+              [b.x + b.nx * l1, b.y + b.ny * l1, zB1], [b.x + b.nx * l0, b.y + b.ny * l0, zB0],
+            ], col);
+          }
+        }
+      }
     }
 
     // Неоднородная земля: мягкие пятна светлее/темнее основного цвета; на воде — блики волн.
@@ -411,7 +459,10 @@
         return;
       }
       const centerLine = env === 'meadow' || env === 'mountain' || env === 'coast';
-      for (const q of quads) this.drawRoadQuad(track, q.i, (q.i + STEP) % N, q.d, centerLine);
+      for (const q of quads) {
+        if (track.open && q.i + STEP >= N) continue;
+        this.drawRoadQuad(track, q.i, (q.i + STEP) % N, q.d, centerLine);
+      }
     }
 
     drawRoadQuad(track, i0, i1, depth, centerLine) {
@@ -430,7 +481,11 @@
       const alt = (i0 >> 1) % 2 === 0;
       const env = track.def.env;
       // Тротуар с бордюром в городе, мягкая обочина за городом.
-      if (env === 'city') {
+      if (track.env.urban) {
+        strip(hw + 0.9, hw + 2.4, alt ? '#a8a197' : '#a29b91', 0.1);
+        strip(-hw - 2.4, -hw - 0.9, alt ? '#a8a197' : '#a29b91', 0.1);
+        strip(hw + 0.9, hw + 1.2, '#d3cdc3'); strip(-hw - 1.2, -hw - 0.9, '#d3cdc3');
+      } else if (env === 'city') {
         strip(hw + 0.9, hw + 4.2, alt ? '#a29c93' : '#9c968d', 0.1);
         strip(-hw - 4.2, -hw - 0.9, alt ? '#a29c93' : '#9c968d', 0.1);
         strip(hw + 0.9, hw + 1.25, '#cfc9bf'); strip(-hw - 1.25, -hw - 0.9, '#cfc9bf');
@@ -447,6 +502,26 @@
         const h = (i0 * 2654435761 >>> 0) % 97;
         if (h < 9) { const l = -hw + 1 + (h / 9) * (2 * hw - 4); strip(l, l + 1.6 + (h % 3), 'rgba(20,22,26,0.28)'); }
         if (h > 90) strip(-hw * 0.3, -hw * 0.3 + 0.06, 'rgba(15,15,15,0.4)');
+      }
+      // Лестница: ступени поперёк трассы с тенью от каждой кромки.
+      if (a.stairs) {
+        const ca = Math.cos(a.ang), sa = Math.sin(a.ang);
+        for (let o = 0; o < 2; o += 0.5) {
+          const e0 = o, e1 = o + 0.14;
+          this.poly([[a.x + a.nx * hw + ca * e0, a.y + a.ny * hw + sa * e0, a.z], [a.x - a.nx * hw + ca * e0, a.y - a.ny * hw + sa * e0, a.z],
+            [a.x - a.nx * hw + ca * e1, a.y - a.ny * hw + sa * e1, a.z], [a.x + a.nx * hw + ca * e1, a.y + a.ny * hw + sa * e1, a.z]], 'rgba(30,26,22,0.45)');
+        }
+        strip(hw - 0.35, hw, '#5d5a55'); strip(-hw, -hw + 0.35, '#5d5a55');
+      }
+      // Уступ (дроп): тёмная кромка и тень под ней.
+      if (a.dropLip) strip(-hw, hw, 'rgba(25,18,10,0.55)');
+      // Деревянный настил: доски поперёк.
+      if (surf === 'wood' && depth < 100) {
+        for (let o = 0; o < 2; o += 0.5) {
+          const ca = Math.cos(a.ang), sa = Math.sin(a.ang);
+          this.poly([[a.x + a.nx * hw + ca * o, a.y + a.ny * hw + sa * o, a.z], [a.x - a.nx * hw + ca * o, a.y - a.ny * hw + sa * o, a.z],
+            [a.x - a.nx * hw + ca * (o + 0.06), a.y - a.ny * hw + sa * (o + 0.06), a.z], [a.x + a.nx * hw + ca * (o + 0.06), a.y + a.ny * hw + sa * (o + 0.06), a.z]], 'rgba(60,35,15,0.45)');
+        }
       }
       // Пешеходный переход.
       if (a.crosswalk) {
@@ -482,7 +557,7 @@
         if ((i0 >> 1) % 4 < 2) strip(-0.08, 0.08, 'rgba(255,255,255,0.7)');
       } else {
         // Колеи на мягком покрытии.
-        const rut = surf === 'snow' ? 'rgba(150,175,200,0.3)' : 'rgba(0,0,0,0.1)';
+        const rut = surf === 'snow' ? 'rgba(150,175,200,0.3)' : surf === 'rock' ? 'rgba(0,0,0,0.16)' : 'rgba(0,0,0,0.1)';
         strip(-1.9, -1.4, rut); strip(1.4, 1.9, rut);
         if (hw > 5) { strip(-hw * 0.65 - 0.25, -hw * 0.65 + 0.25, rut); strip(hw * 0.65 - 0.25, hw * 0.65 + 0.25, rut); }
       }
@@ -503,8 +578,8 @@
           }
         }
       }
-      // Стартовая клетка.
-      if (i0 === 0) {
+      // Стартовая клетка (на даунхилле — ещё и финишная линия внизу).
+      if (i0 === 0 || (track.open && i0 === (track.finishIdx & ~1))) {
         const cells = 10, cw = (2 * hw) / cells;
         for (let row = 0; row < 2; row++) {
           for (let k = 0; k < cells; k++) {
@@ -998,15 +1073,77 @@
           });
           break;
         }
-        case 'gantry': this.drawGantry(track); break;
+        case 'gantry': this.drawGantry(track, o); break;
+        case 'kicker': {
+          // Деревянный трамплин: наклонная рампа и боковые стенки.
+          const ca = Math.cos(o.ang), sa = Math.sin(o.ang), w = o.w / 2;
+          const P = (lon, lat, h) => [o.x + ca * lon - sa * lat, o.y + sa * lon + ca * lat, o.z + h];
+          this.poly([P(-3, w, 0), P(0, w, 0.9), P(0, -w, 0.9), P(-3, -w, 0)], '#b48450');
+          for (let k = 1; k < 6; k++) { const l = -3 + k * 0.5; this.poly([P(l, w, (l + 3) * 0.3), P(l + 0.05, w, (l + 3.05) * 0.3), P(l + 0.05, -w, (l + 3.05) * 0.3), P(l, -w, (l + 3) * 0.3)], 'rgba(70,40,15,0.5)'); }
+          this.poly([P(0, w, 0), P(0, w, 0.9), P(0, -w, 0.9), P(0, -w, 0)], '#7a5430');
+          for (const sd of [w, -w]) this.poly([P(-3, sd, 0), P(0, sd, 0.9), P(0, sd, 0)], '#8e6439');
+          this.poly([P(-0.25, w, 0.82), P(0, w, 0.9), P(0, -w, 0.9), P(-0.25, -w, 0.82)], '#f2c230');
+          break;
+        }
+        case 'starthut': {
+          // Стартовые ворота: деревянная рампа, стойки и баннер START над трассой
+          // (без крыши — камера стоит позади и смотрит сквозь ворота).
+          const ca = Math.cos(o.ang), sa = Math.sin(o.ang), w = o.w / 2;
+          const P = (lon, lat, h) => [o.x + ca * lon - sa * lat, o.y + sa * lon + ca * lat, o.z + h];
+          this.poly([P(-3, w, 0.05), P(0.8, w, 0.05), P(0.8, -w, 0.05), P(-3, -w, 0.05)], '#9b7748');
+          for (let k = 0; k < 7; k++) { const l = -3 + k * 0.6; this.poly([P(l, w, 0.06), P(l + 0.06, w, 0.06), P(l + 0.06, -w, 0.06), P(l, -w, 0.06)], 'rgba(60,35,15,0.5)'); }
+          for (const sd of [w, -w]) {
+            this.poly([P(-3, sd, 0), P(0.8, sd, 0), P(0.8, sd, 1.0), P(-3, sd, 1.0)], '#2f343c');
+            const a = this.project(...P(0.6, sd, 0)), b = this.project(...P(0.6, sd, 4.2));
+            if (a && b) { ctx.strokeStyle = '#3a3f47'; ctx.lineWidth = Math.max(2, 0.3 * a[2]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+          }
+          this.poly([P(0.6, w, 3.4), P(0.6, -w, 3.4), P(0.6, -w, 4.2), P(0.6, w, 4.2)], '#e63946');
+          const a = P(0.6, -w, 3.4), b = P(0.6, w, 3.4);
+          if (base[2] > 4) this.planeText(a[0], a[1], b[0], b[1], a[2] + 0.05, 'START', 0.6, '#ffffff');
+          break;
+        }
+        case 'tape': {
+          // Колышки и сигнальная лента вдоль трассы.
+          const a = this.project(o.x1, o.y1, o.z), a2 = this.project(o.x1, o.y1, o.z + 0.85);
+          if (!a || !a2) return;
+          ctx.strokeStyle = '#e8e2d4'; ctx.lineWidth = Math.max(1, 0.06 * a[2]);
+          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(a2[0], a2[1]); ctx.stroke();
+          const b2 = this.project(o.x2, o.y2, o.z2 + 0.85), m = this.project((o.x1 + o.x2) / 2, (o.y1 + o.y2) / 2, (o.z + o.z2) / 2 + 0.72);
+          if (b2 && m) {
+            ctx.strokeStyle = o.c; ctx.lineWidth = Math.max(1, 0.07 * a[2]);
+            ctx.beginPath(); ctx.moveTo(a2[0], a2[1]); ctx.quadraticCurveTo(m[0], m[1], b2[0], b2[1]); ctx.stroke();
+          }
+          break;
+        }
+        case 'mesa': {
+          // Столовая гора из песчаника со слоями.
+          const ang = o.seed * 3;
+          const layers = 4;
+          for (let k = 0; k < layers; k++) {
+            const z0 = o.z + (o.h / layers) * k;
+            const ww = o.w * (1 - k * 0.12);
+            this.prism(o.x, o.y, z0, ww, ww * 0.8, o.h / layers, ang, k % 2 ? '#c4693d' : '#b45a33');
+          }
+          break;
+        }
+        case 'snowpatch': {
+          const pts = [];
+          for (let k = 0; k < 9; k++) {
+            const a = k / 9 * Math.PI * 2;
+            const rr = (2 + o.seed * 3) * (0.7 + ((o.seed * (k + 2) * 17.3) % 1) * 0.5);
+            pts.push([o.x + Math.cos(a) * rr, o.y + Math.sin(a) * rr * 0.8, o.z + 0.02]);
+          }
+          this.poly(pts, 'rgba(245,249,252,0.92)');
+          break;
+        }
         case 'building': this.drawBox(o, track, false); break;
         case 'house': this.drawBox(o, track, true); break;
         default: break;
       }
     }
 
-    drawGantry(track) {
-      const p = track.samples[0], hw = track.hw + 1.4;
+    drawGantry(track, o) {
+      const p = track.samples[(o && o.idx) || 0], hw = track.hw + 1.4;
       const L = [p.x + p.nx * hw, p.y + p.ny * hw], R = [p.x - p.nx * hw, p.y - p.ny * hw];
       const ctx = this.ctx;
       const z = p.z;
@@ -1035,7 +1172,7 @@
       const corners = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([u, v]) => [o.x + u * ca - v * sa, o.y + u * sa + v * ca]);
       for (const k of corners) if (this.toCam(k[0], k[1], o.z)[2] < NEAR + 0.5) return;
       const palette = house ? ['#e8d9b5', '#d7c49a', '#f1e5c6'] : ['#8d99a6', '#a3aeb9', '#7a8794', '#b59f86', '#9c7f6a', '#c7b8a3'];
-      const col = palette[Math.floor(o.seed * palette.length)];
+      const col = o.col || palette[Math.floor(o.seed * palette.length)];
       const z0 = o.z, z1 = o.z + o.h;
       const faces = [];
       for (let i = 0; i < 4; i++) {
@@ -1166,15 +1303,15 @@
       const t = bike.type;
       const pt = S.make(tilt, dx);
       const { seg, blob, poly } = S;
-      const mtbLike = ['mtb', 'enduro', 'xc', 'fat', 'bmx'].includes(t);
-      const tw = t === 'fat' ? 0.11 : mtbLike ? 0.06 : t === 'gravel' ? 0.042 : 0.03;
+      const mtbLike = ['mtb', 'enduro', 'xc', 'fat', 'bmx', 'dh'].includes(t);
+      const tw = t === 'fat' ? 0.11 : t === 'dh' ? 0.072 : mtbLike ? 0.06 : t === 'gravel' ? 0.042 : 0.03;
       const wheelR = t === 'folding' ? 0.21 : t === 'bmx' ? 0.26 : 0.35;
-      const wb = t === 'folding' ? 0.52 : t === 'bmx' ? 0.48 : t === 'enduro' ? 0.62 : 0.5;
+      const wb = t === 'folding' ? 0.52 : t === 'bmx' ? 0.48 : t === 'dh' ? 0.68 : t === 'enduro' ? 0.62 : 0.5;
       const rims = (bike.look && bike.look.rims) || 'alu';
       const rimCol = rims === 'alu' ? '#c3c8cf' : '#2f3136';
       const odo = r.odo || 0;
       // Тень (наклоняется вместе с велосипедом).
-      blob(S.make(0, dx)(0.3 + (tilt || 0) * 0.5, 0.2, 0), 0.3, 1.0, 'rgba(0,0,0,0.24)');
+      if (!(r.airH > 0.05)) blob(S.make(0, dx)(0.3 + (tilt || 0) * 0.5, 0.2, 0), 0.3, 1.0, 'rgba(0,0,0,0.24)');
       // Колёса: покрышка, обод и бегущие по протектору метки — видно вращение.
       for (const wy of [-wb, wb]) {
         seg(pt(0, wy - wheelR, wheelR * 0.4), pt(0, wy + wheelR, wheelR * 0.4), tw * 2.4, '#111214');
@@ -1192,12 +1329,22 @@
       seg(pt(0.06, wb, 0.35), pt(0.03, 0.02, 0.3), 0.035, frameD);
       seg(pt(-0.05, wb, 0.37), pt(0, 0.12, 0.64), 0.03, frame);
       seg(pt(0.05, wb, 0.37), pt(0, 0.12, 0.64), 0.03, frame);
-      seg(pt(0, 0.02, 0.3), pt(0, -wb + 0.12, 0.62), t === 'aero' || t === 'tt' || t === 'enduro' ? 0.075 : 0.06, frameD);
+      seg(pt(0, 0.02, 0.3), pt(0, -wb + 0.12, 0.62), t === 'aero' || t === 'tt' || t === 'enduro' || t === 'dh' ? 0.075 : 0.06, frameD);
       seg(pt(0, 0.14, 0.66), pt(0, -wb + 0.1, 0.68), mtbLike ? 0.06 : 0.05, frame);
       seg(pt(0, 0.14, 0.66), pt(0, -wb + 0.1, 0.68), 0.015, 'rgba(255,255,255,0.35)');
       const forkCol = mtbLike && t !== 'fat' && t !== 'bmx' ? '#1a1a1d' : frame;
       seg(pt(-0.05, -wb, 0.37), pt(0, -wb + 0.08, 0.62), 0.03, forkCol);
       seg(pt(0.05, -wb, 0.37), pt(0, -wb + 0.08, 0.62), 0.03, forkCol);
+      if (t === 'dh') {
+        // Двухкоронная вилка: ноги до самого руля, верхняя корона и задний амортизатор.
+        seg(pt(-0.07, -wb + 0.02, 0.4), pt(-0.06, -wb + 0.1, 0.84), 0.045, '#1a1a1d');
+        seg(pt(0.07, -wb + 0.02, 0.4), pt(0.06, -wb + 0.1, 0.84), 0.045, '#1a1a1d');
+        seg(pt(-0.07, -wb + 0.04, 0.5), pt(-0.065, -wb + 0.07, 0.68), 0.05, '#e8a33a');
+        seg(pt(0.07, -wb + 0.04, 0.5), pt(0.065, -wb + 0.07, 0.68), 0.05, '#e8a33a');
+        seg(pt(-0.09, -wb + 0.1, 0.8), pt(0.09, -wb + 0.1, 0.8), 0.035, '#2b2c30');
+        seg(pt(0, 0.05, 0.4), pt(0, 0.2, 0.6), 0.06, '#e8a33a');
+        seg(pt(0, 0.05, 0.4), pt(0, 0.2, 0.6), 0.025, '#2b2c30');
+      }
       // Звезда, шатуны и педали вращаются с каденсом.
       const ph = r.pedal || 0;
       blob(pt(0.09, 0, 0.3), 0.025, 0.11, '#4d5157');
@@ -1210,7 +1357,7 @@
       // Седло и руль.
       const sadH = 0.96;
       poly([pt(-0.07, 0.3, sadH), pt(0.07, 0.3, sadH), pt(0.025, 0.06, sadH), pt(-0.025, 0.06, sadH)], '#151517');
-      const barY = -wb + 0.06, barH = t === 'bmx' ? 1.05 : t === 'folding' ? 1.0 : mtbLike ? 0.92 : 0.88;
+      const barY = -wb + 0.06, barH = t === 'bmx' ? 1.05 : t === 'folding' ? 1.0 : t === 'dh' ? 0.95 : mtbLike ? 0.92 : 0.88;
       seg(pt(0, -wb + 0.12, 0.68), pt(0, barY, barH), 0.04, '#1b1c1f');
       let hands;
       if (t === 'tt') {
@@ -1219,7 +1366,7 @@
         seg(pt(0.06, barY + 0.15, barH + 0.05), pt(0.05, barY - 0.2, barH + 0.06), 0.03, '#1b1c1f');
         hands = [[-0.05, barY - 0.15, barH + 0.07], [0.05, barY - 0.15, barH + 0.07]];
       } else if (mtbLike || t === 'hybrid' || t === 'folding') {
-        const bw = t === 'bmx' ? 0.34 : t === 'folding' ? 0.28 : t === 'hybrid' ? 0.31 : 0.39;
+        const bw = t === 'bmx' ? 0.34 : t === 'folding' ? 0.28 : t === 'hybrid' ? 0.31 : t === 'dh' ? 0.42 : 0.39;
         seg(pt(-bw, barY + 0.03, barH), pt(bw, barY + 0.03, barH), 0.032, '#1b1c1f');
         seg(pt(-bw, barY + 0.03, barH), pt(-bw + 0.12, barY + 0.03, barH), 0.045, '#0d0d0f');
         seg(pt(bw - 0.12, barY + 0.03, barH), pt(bw, barY + 0.03, barH), 0.045, '#0d0d0f');
@@ -1243,10 +1390,11 @@
       const bike = D.bikeById(r.bikeId);
       const t = bike.type;
       const ph = r.pedal || 0;
-      const standing = r.sprintHold > 0 || (r.climbing && r.v < 9);
+      const attack = t === 'dh' && r.standing && !(r.sprintHold > 0);
+      const standing = r.sprintHold > 0 || (r.climbing && r.v < 9) || attack;
       const lean = Math.max(-1, Math.min(1, r.lean || 0));
       // Велосипед раскачивается под гонщиком при работе стоя, весь корпус кренится в повороте.
-      const sway = standing ? Math.sin(ph) * 0.13 : 0;
+      const sway = standing && !attack ? Math.sin(ph) * 0.13 : 0;
       const bikeTilt = lean * 0.32 + sway;
       const g = this.drawBikeSprite(S, r, bike, bikeTilt, 0);
       const riderTilt = lean * 0.3 - sway * 0.35;
@@ -1255,8 +1403,10 @@
       const { seg, blob, poly, limb, polyO } = S;
       const tuck = t === 'tt' || t === 'aero' ? 0.14 : t === 'road' ? 0.06 : 0;
       const bob = Math.abs(Math.sin(ph)) * (standing ? 0.05 : 0.012);
-      const hipH = standing ? 1.13 + bob : 0.98 - tuck * 0.3 + bob;
-      const hipY = standing ? -0.02 : 0.2;
+      // Даунхилл: «атакующая стойка» — стоя на педалях, таз отведён назад, локти в стороны.
+      const absorb = attack ? Math.sin((r.odo || 0) * 2.3) * 0.025 + (r.airH > 0.05 ? -0.06 : 0) : 0;
+      const hipH = attack ? 1.0 + absorb : standing ? 1.13 + bob : 0.98 - tuck * 0.3 + bob;
+      const hipY = attack ? 0.16 : standing ? -0.02 : 0.2;
       const skin = this.skinOf(r), shorts = '#17181b';
       // Ноги: дальняя (по фазе ниже) первой, чтобы правильно перекрывалась.
       const leg = (sgn) => {
@@ -1275,7 +1425,7 @@
       };
       if (Math.sin(ph) > 0) { leg(1); leg(-1); } else { leg(-1); leg(1); }
       // Корпус.
-      const shH = (standing ? 1.38 : 1.2 - tuck) + bob, shY = standing ? -0.33 : -0.24 - tuck * 0.6;
+      const shH = attack ? 1.26 + absorb : (standing ? 1.38 : 1.2 - tuck) + bob, shY = attack ? -0.3 : standing ? -0.33 : -0.24 - tuck * 0.6;
       const twist = standing ? Math.sin(ph) * 0.05 : Math.sin(ph) * 0.012;
       const jersey = r.jersey, jerseyD = window.Render.shade(r.jersey, 0.7);
       polyO([pt(-0.15, hipY + 0.04, hipH + 0.02), pt(0.15, hipY + 0.04, hipH + 0.02), pt(0.2 + twist, shY, shH), pt(-0.2 + twist, shY, shH)], jersey);
@@ -1291,7 +1441,7 @@
         const sgn = i ? 1 : -1;
         const sh = pt(0.19 * sgn + twist, shY + 0.03, shH - 0.02);
         const hand = bikePt(h[0], h[1], h[2]);
-        const el = pt(0.25 * sgn, (shY + h[1]) / 2 + 0.04, (shH + h[2]) / 2 - 0.06);
+        const el = pt((attack ? 0.36 : 0.25) * sgn, (shY + h[1]) / 2 + 0.04, (shH + h[2]) / 2 - (attack ? 0.02 : 0.06));
         limb(sh, el, 0.085, jersey);
         seg(el, pt(0.25 * sgn, (shY + h[1]) / 2 + 0.06, (shH + h[2]) / 2 - 0.05), 0.09, '#f7f7f7');
         limb(el, hand, 0.065, skin);
@@ -1308,6 +1458,12 @@
         S.ctx.beginPath(); S.ctx.moveTo(a[0], a[1]); S.ctx.lineTo(b[0], b[1]); S.ctx.stroke();
       }
       blob(pt(hx, shY - 0.26, shH + 0.06), 0.09, 0.03, '#0d0f12');
+      if (t === 'dh') {
+        // Фулфейс: подбородочная дуга и маска-очки.
+        blob(pt(hx, shY - 0.25, shH - 0.02), 0.09, 0.06, r.helmet);
+        blob(pt(hx, shY - 0.22, shH + 0.05), 0.1, 0.035, '#ffb703');
+        blob(pt(hx, shY - 0.23, shH + 0.05), 0.07, 0.022, '#1d2b3a');
+      }
       blob(pt(hx - 0.04, shY - 0.17, shH + 0.15), 0.045, 0.07, 'rgba(255,255,255,0.35)');
       return S;
     }
@@ -1466,12 +1622,33 @@
     }
 
     drawRider(r) {
+      const ctx = this.ctx;
+      if (r.airH > 0.05) {
+        // В полёте тень остаётся на земле и уменьшается с высотой.
+        const k = Math.max(0.35, 1 - r.airH / 8);
+        ctx.globalAlpha = (r.ghost ? 0.5 : 1) * k;
+        this.shadow(r.x, r.y, r.z - r.airH, 0.55 * k, 0.32 * k);
+        ctx.globalAlpha = 1;
+      }
+      if (r.ghost) ctx.globalAlpha = 0.55;
+      if (r.crash > 0) {
+        // Падение: велосипед лежит на боку, гонщик поднимается рядом.
+        const S0 = this.spriteFrame(r, 1.08);
+        if (S0) this.drawBikeSprite(S0, Object.assign({}, r, { airH: 0 }), D.bikeById(r.bikeId), 1.45, 0.25);
+        const off = { x: r.x + Math.sin(r.heading) * 0.7, y: r.y - Math.cos(r.heading) * 0.7 };
+        const S = this.drawRunnerSprite(Object.assign({}, r, off, { phase: 0 }), { idle: true });
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        if (S) this.drawLabel(r, S.base);
+        return;
+      }
       let S;
       if (r.mode === 'swim') S = this.drawSwimmerSprite(r);
       else if (r.mode === 'run') S = this.drawRunnerSprite(r, {});
       else if (r.mode === 'idle') S = this.drawRunnerSprite(r, { idle: true });
       else if (r.mode === 'push') S = this.drawRunnerSprite(r, { pushBike: true });
       else S = this.drawCyclist(r);
+      ctx.globalAlpha = 1;
       if (!S) return;
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.drawLabel(r, S.base);
@@ -1492,9 +1669,11 @@
     ctx.lineWidth = (o.lw || 4) + 3;
     ctx.beginPath();
     track.samples.forEach((p, i) => { if (i === 0) ctx.moveTo(tx(p.x), ty(p.y)); else ctx.lineTo(tx(p.x), ty(p.y)); });
-    ctx.closePath(); ctx.stroke();
+    if (!track.open) ctx.closePath();
+    ctx.stroke();
     ctx.lineWidth = o.lw || 4;
     for (let i = 0; i < track.N; i += 2) {
+      if (track.open && i + 2 >= track.N) break;
       const p = track.samples[i], q = track.samples[(i + 2) % track.N];
       ctx.strokeStyle = o.mono || (p.surface === 'asphalt' ? '#9aa3ad' : D.SURFACES[p.surface].color);
       ctx.beginPath(); ctx.moveTo(tx(p.x), ty(p.y)); ctx.lineTo(tx(q.x), ty(q.y)); ctx.stroke();
@@ -1502,6 +1681,12 @@
     const s0 = track.samples[0];
     ctx.fillStyle = '#fff';
     ctx.fillRect(tx(s0.x) - 3, ty(s0.y) - 3, 6, 6);
+    if (track.open) {
+      // Финиш внизу — клетчатый флажок.
+      const f = track.samples[track.finishIdx];
+      ctx.fillStyle = '#111'; ctx.fillRect(tx(f.x) - 4, ty(f.y) - 4, 8, 8);
+      ctx.fillStyle = '#fff'; ctx.fillRect(tx(f.x) - 4, ty(f.y) - 4, 4, 4); ctx.fillRect(tx(f.x), ty(f.y), 4, 4);
+    }
     return { tx, ty };
   }
 

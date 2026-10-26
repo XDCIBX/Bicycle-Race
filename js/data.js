@@ -24,6 +24,10 @@
     grass: { name: 'Обочина', color: '#5c8f3c', rough: 0.6, grip: 0.62, dust: null },
     water: { name: 'Открытая вода', color: '#2f7fb8', rough: 0, grip: 1, dust: null },
     path: { name: 'Беговая дорожка', color: '#b07a5a', rough: 0.05, grip: 0.95, dust: null },
+    // Покрытия даунхилл-трасс.
+    rock: { name: 'Камни и корни', color: '#8a8378', rough: 0.62, grip: 0.8, dust: '#a8a094' },
+    stairs: { name: 'Лестница', color: '#9b9488', rough: 0.55, grip: 0.82, dust: null },
+    wood: { name: 'Деревянный настил', color: '#a5794a', rough: 0.12, grip: 0.9, dust: null },
   };
 
   // Колёса/покрышки. roll — накат (влияет на максимальную скорость) по покрытиям,
@@ -163,6 +167,7 @@
   const BIKE_TYPES = {
     road: 'Шоссейный', aero: 'Аэро-шоссейный', tt: 'Разделочный (TT)', gravel: 'Гревел', hybrid: 'Фитнес/гибрид',
     mtb: 'Горный хардтейл', enduro: 'Эндуро-двухподвес', xc: 'XC-двухподвес', fat: 'Фэтбайк', bmx: 'BMX', folding: 'Складной',
+    dh: 'Даунхилл',
   };
 
   // Только реальные бренды и модели. brand/model — для подписи и декалей на раме,
@@ -455,10 +460,15 @@
   ];
 
   const ENVIRONMENTS = {
+    urbanhill: { ground: '#8a7f74', decal: ['#7a6f65', '#988c80'], scenery: [], density: 0, urban: true },
+    oldtown: { ground: '#857a6c', decal: ['#776c60', '#968a7c'], scenery: [], density: 0, urban: true },
+    alpine: { ground: '#7d8f63', decal: ['#8a8b84', '#6d8054', '#e9eef2', '#9aa38a'], scenery: ['pine', 'rock', 'rock', 'pine', 'snowpatch', 'rock'], density: 1.1, relief: 1.2 },
+    forestdh: { ground: '#355e2c', decal: ['#2a4d22', '#47733a', '#6b5236'], scenery: ['pine', 'tree', 'fern', 'pine', 'log', 'birch', 'fern'], density: 2.4, relief: 0.8 },
+    canyon: { ground: '#b9673e', decal: ['#a85a35', '#cf7a4a', '#d9a070'], scenery: ['mesa', 'rock', 'rock', 'cactus', 'mesa'], density: 0.8, relief: 1.6 },
     meadow: { ground: '#5f9a40', decal: ['#6fae4a', '#527f35', '#e6d15a', '#f3f3f3'], scenery: ['tree', 'tree', 'birch', 'bush', 'flowers', 'rock', 'house'], density: 1.0, lakes: 2 },
     city: { ground: '#6f6a64', decal: ['#625d58', '#7d7770'], scenery: ['building', 'building', 'building', 'lamp', 'tree', 'bench'], density: 1.3 },
     countryside: { ground: '#9db04d', decal: ['#c9b95a', '#88a043', '#b7c766'], scenery: ['tree', 'haybale', 'bush', 'house', 'birch', 'flowers'], density: 0.9, lakes: 1 },
-    mountain: { ground: '#6d8a4f', decal: ['#7a7d78', '#5b7642', '#8a9a72'], scenery: ['pine', 'pine', 'rock', 'rock', 'pine', 'flowers'], density: 1.2, lakes: 1 },
+    mountain: { ground: '#6d8a4f', decal: ['#7a7d78', '#5b7642', '#8a9a72'], scenery: ['pine', 'pine', 'rock', 'rock', 'pine', 'flowers'], density: 1.2, lakes: 1, relief: 0.9 },
     forest: { ground: '#3f6b33', decal: ['#2f5527', '#4e7d3c', '#6b5236'], scenery: ['pine', 'tree', 'pine', 'birch', 'bush', 'pine', 'fern', 'pine', 'tree', 'fern', 'log'], density: 2.0, lakes: 1 },
     desert: { ground: '#dcc287', decal: ['#cfb173', '#e8d39c', '#b99a5f'], scenery: ['cactus', 'rock', 'cactus', 'dune'], density: 0.6 },
     snow: { ground: '#e3edf5', decal: ['#cddbe7', '#f7fbff', '#b9c9d8'], scenery: ['snowpine', 'snowpine', 'rock', 'snowpine', 'snowpine', 'snowpine', 'rock', 'snowpine', 'snowman'], density: 1.1 },
@@ -483,10 +493,128 @@
   const START_MONEY = 500;
   const PRIZE_SHARE = [1, 0.65, 0.45, 0.32, 0.24, 0.18];
 
+  // ═════════ ДАУНХИЛЛ ═════════
+  // Отдельная дисциплина: спуск на время по трассе с перепадом высоты, прыжками и лестницами.
+  const DH_STAT_KEYS = ['speed', 'brakes', 'handling', 'suspension', 'stability', 'jump'];
+  const DH_STAT_NAMES = {
+    speed: 'Скорость на спуске', brakes: 'Торможение', handling: 'Управляемость',
+    suspension: 'Подвеска', stability: 'Устойчивость', jump: 'Прыжки',
+  };
+  // DH-покрышки (размер 'dh'): накат и сцепление на всех покрытиях.
+  const dhTire = (name, price, desc, roll, grip, mods) => ({ name, size: 'dh', price, desc, roll, grip, mods: mods || {} });
+  const allSurf = (base, over) => Object.assign({ asphalt: base, cobble: base, gravel: base, dirt: base, sand: base * 0.8, snow: base * 0.7, grass: base * 0.9, water: 0.3, path: base, rock: base, stairs: base, wood: base }, over);
+  Object.assign(WHEELS, {
+    assegai: dhTire('Maxxis Assegai 29×2.5" DH', 450, 'Эталон DH: предсказуемое сцепление на любом грунте.',
+      allSurf(0.9, { asphalt: 0.86, dirt: 0.95, rock: 0.92 }), allSurf(0.95, { dirt: 1.0, rock: 0.96, asphalt: 0.9 })),
+    magicmary: dhTire('Schwalbe Magic Mary 27.5×2.4" Super Downhill', 600, 'Агрессивные шипы для грязи и корней, на асфальте медленнее.',
+      allSurf(0.86, { asphalt: 0.8, cobble: 0.84, dirt: 0.98, rock: 0.95 }), allSurf(0.96, { dirt: 1.05, rock: 1.02, asphalt: 0.86 }), { handling: 2 }),
+    dh22: dhTire('Michelin DH22 29×2.4"', 750, 'Быстрая резина для сухих и городских трасс: асфальт, брусчатка, лестницы.',
+      allSurf(0.94, { asphalt: 0.98, cobble: 0.96, stairs: 0.95, wood: 0.97, dirt: 0.88 }), allSurf(0.92, { asphalt: 1.0, cobble: 0.98, stairs: 0.96, dirt: 0.88 }), { speed: 2 }),
+    kryptotal: dhTire('Continental Kryptotal-Fr DH SuperSoft', 950, 'Самая мягкая смесь: максимум сцепления везде.',
+      allSurf(0.9, { dirt: 0.96, rock: 0.95 }), allSurf(1.02, { rock: 1.04, dirt: 1.04 }), { handling: 3, brakes: 2 }),
+  });
+  WHEEL_SIZE_NAMES.dh = 'DH 27.5–29"';
+
+  // Специальные улучшения для DH-велосипедов (до 5 уровней).
+  const DH_UPGRADES = [
+    { id: 'dh_fork', name: 'Двухкоронная вилка FOX 40 Factory', icon: '🔱', mods: { suspension: 5, handling: 1 }, base: 180 },
+    { id: 'dh_shock', name: 'Амортизатор FOX DHX2 с прогрессией', icon: '🌀', mods: { suspension: 3, jump: 3 }, base: 170 },
+    { id: 'dh_brakes', name: 'Тормоза Shimano Saint, роторы 220 мм', icon: '🛑', mods: { brakes: 6 }, base: 120 },
+    { id: 'dh_cockpit', name: 'Руль 800 мм, вынос 35 мм', icon: '🎯', mods: { handling: 5 }, base: 130 },
+    { id: 'dh_geometry', name: 'Геометрия: длинная база, низкая каретка', icon: '📐', mods: { stability: 6 }, base: 160 },
+    { id: 'dh_wheels', name: 'DH-обода с вкладышами CushCore', icon: '⭕', mods: { speed: 3, jump: 2 }, base: 200 },
+  ];
+
+  const DH_BIKES = [
+    { id: 'collosus', brand: 'Polygon', model: 'Collosus DH9', tier: 1, price: 1200, color: '#1d1f22', accent: '#d9e021', decal: '#d9e021',
+      dhStats: { speed: 50, brakes: 52, handling: 55, suspension: 58, stability: 52, jump: 50 },
+      desc: 'Доступный DH-двухподвес из Индонезии: 200 мм хода, чтобы начать спуски.',
+      photoMatch: { brand: 'polygon', model: 'collosus' }, photoQueries: ['Polygon Collosus DH', 'Polygon downhill bike'] },
+    { id: 'supreme', brand: 'Commencal', model: 'Supreme DH V5', tier: 2, price: 2600, color: '#c3c8cd', accent: '#1b6bd8', decal: '#1b6bd8',
+      dhStats: { speed: 60, brakes: 62, handling: 62, suspension: 66, stability: 64, jump: 60 },
+      desc: 'Французская DH-классика с высокой осью задней подвески: прёт через корни и камни.',
+      photoMatch: { brand: 'commencal', model: 'supreme' }, photoQueries: ['Commencal Supreme DH', 'Commencal downhill'] },
+    { id: 'tues', brand: 'YT', model: 'Tues', tier: 2, price: 3400, color: '#2a2a2c', accent: '#ff6a00', decal: '#ff6a00',
+      dhStats: { speed: 63, brakes: 64, handling: 70, suspension: 68, stability: 60, jump: 74 },
+      desc: 'Игривый немецкий DH: лучший в прыжках и на городских трамплинах.',
+      photoMatch: { brand: '\\byt\\b|young talent', model: 'tues' }, photoQueries: ['YT Tues', 'YT Industries Tues'] },
+    { id: 'sender', brand: 'Canyon', model: 'Sender CFR', tier: 3, price: 4600, color: '#1d2b23', accent: '#9ad13a', decal: '#9ad13a',
+      dhStats: { speed: 72, brakes: 70, handling: 68, suspension: 74, stability: 75, jump: 66 },
+      desc: 'Карбоновый DH Кубка мира: регулируемая геометрия, стабилен на огромной скорости.',
+      photoMatch: { brand: 'canyon', model: 'sender' }, photoQueries: ['Canyon Sender', 'Canyon downhill bike'] },
+    { id: 'session', brand: 'Trek', model: 'Session 9.9', tier: 4, price: 5800, color: '#3a1a5c', accent: '#ff3366', decal: '#ffffff',
+      dhStats: { speed: 76, brakes: 76, handling: 75, suspension: 82, stability: 77, jump: 72 },
+      desc: 'Подвеска ABP не «затвердевает» при торможении — лучшая работа на камнях.',
+      photoMatch: { brand: 'trek', model: 'session' }, photoQueries: ['Trek Session downhill', 'Trek Session'] },
+    { id: 'demo', brand: 'Specialized', model: 'Demo Race', tier: 4, price: 7200, color: '#101012', accent: '#e5332a', decal: '#e5332a',
+      dhStats: { speed: 81, brakes: 80, handling: 72, suspension: 80, stability: 85, jump: 70 },
+      desc: 'Низкий и длинный: невероятно устойчив на скоростных альпийских трассах.',
+      photoMatch: { brand: 'specialized|demo', model: 'demo' }, photoQueries: ['Specialized Demo', 'Specialized Demo Race'] },
+    { id: 'v10', brand: 'Santa Cruz', model: 'V10', tier: 5, price: 9500, color: '#2b61c9', accent: '#f5d10a', decal: '#f5d10a',
+      dhStats: { speed: 87, brakes: 85, handling: 83, suspension: 90, stability: 87, jump: 80 },
+      desc: 'Легенда с подвеской VPP: чемпионские титулы Кубка мира. Лучший DH в игре.',
+      photoMatch: { brand: 'santa cruz', model: 'v10' }, photoQueries: ['Santa Cruz V10', 'Santa Cruz downhill'] },
+  ];
+  DH_BIKES.forEach((b) => {
+    Object.assign(b, { type: 'dh', dh: true, sizes: ['dh'], stockWheel: 'assegai', look: { rims: 'alu' }, name: `${b.brand} ${b.model}` });
+    // Обычные характеристики (для общих экранов): DH-байк силён в бездорожье и слаб в подъёмах.
+    b.stats = { speed: b.dhStats.speed, accel: Math.round((b.dhStats.speed + b.dhStats.jump) / 2), handling: b.dhStats.handling, brakes: b.dhStats.brakes, climb: 12, offroad: b.dhStats.suspension };
+    BIKES.push(b);
+  });
+
+  // Трассы спуска: незамкнутые, от старта на вершине до финиша внизу.
+  // features: stairs — лестница (дополнительный перепад h на участке a..b), drop — уступ (резкий перепад h),
+  // kicker — трамплин (прыжок). Высоты z — метры над финишем.
+  const DH_TRACKS = [
+    {
+      id: 'dh_forest', name: 'Лесные корни', env: 'forestdh', dh: true, open: true, tier: 1, level: 1, laps: 1, width: 5, offSurface: 'dirt', prize: 600,
+      focus: 'Подвеска и управляемость', desc: 'Крутой лесной спуск: корни, камни, деревянный настил и два уступа.',
+      points: [[0, 0, 120], [50, 50, 112], [30, 120, 102], [-30, 170, 92], [-10, 240, 82], [60, 280, 70], [90, 350, 58], [50, 420, 46], [-10, 470, 34], [10, 540, 22], [80, 580, 10], [130, 620, 0]],
+      surfaces: [[0, 0.3, 'dirt'], [0.3, 0.45, 'rock'], [0.45, 0.6, 'dirt'], [0.6, 0.7, 'wood'], [0.7, 0.85, 'rock'], [0.85, 1, 'dirt']],
+      features: [{ type: 'drop', at: 0.2, h: 2.5 }, { type: 'kicker', at: 0.5 }, { type: 'kicker', at: 0.66 }, { type: 'drop', at: 0.78, h: 3 }],
+    },
+    {
+      id: 'dh_urban', name: 'Портовые холмы', env: 'urbanhill', dh: true, open: true, tier: 2, level: 3, laps: 1, width: 4.6, offSurface: 'cobble', prize: 900,
+      focus: 'Прыжки и скорость', desc: 'Городской спуск в духе Вальпараисо: узкие улицы между пёстрыми домами, лестницы, трамплины и толпы болельщиков.',
+      points: [[0, 0, 130], [60, 40, 124], [90, 110, 116], [50, 170, 108], [-20, 210, 98], [-40, 280, 88], [10, 340, 78], [80, 370, 70], [120, 440, 58], [90, 510, 46], [20, 550, 36], [-30, 620, 24], [0, 690, 14], [70, 730, 6], [120, 780, 0]],
+      surfaces: [[0, 0.15, 'cobble'], [0.15, 0.22, 'stairs'], [0.22, 0.4, 'asphalt'], [0.4, 0.46, 'stairs'], [0.46, 0.6, 'cobble'], [0.6, 0.64, 'wood'], [0.64, 0.8, 'cobble'], [0.8, 0.86, 'stairs'], [0.86, 1, 'asphalt']],
+      features: [{ type: 'stairs', a: 0.15, b: 0.22, h: 6 }, { type: 'kicker', at: 0.3 }, { type: 'stairs', a: 0.4, b: 0.46, h: 5 }, { type: 'kicker', at: 0.62 }, { type: 'drop', at: 0.7, h: 2.5 }, { type: 'stairs', a: 0.8, b: 0.86, h: 6 }, { type: 'kicker', at: 0.93 }],
+    },
+    {
+      id: 'dh_oldtown', name: 'Старый город', env: 'oldtown', dh: true, open: true, tier: 2, level: 5, laps: 1, width: 4.0, offSurface: 'cobble', prize: 1000,
+      focus: 'Управляемость и торможение', desc: 'Средневековые переулки шириной в велосипед: брусчатка, крутые лестницы и повороты под 90°.',
+      points: [[0, 0, 100], [40, 60, 94], [0, 120, 86], [-50, 150, 80], [-60, 220, 70], [0, 260, 62], [40, 330, 52], [0, 390, 42], [-40, 450, 32], [0, 520, 22], [50, 560, 12], [90, 620, 0]],
+      surfaces: [[0, 0.25, 'cobble'], [0.25, 0.32, 'stairs'], [0.32, 0.55, 'cobble'], [0.55, 0.6, 'stairs'], [0.6, 0.75, 'cobble'], [0.75, 0.82, 'stairs'], [0.82, 1, 'cobble']],
+      features: [{ type: 'stairs', a: 0.25, b: 0.32, h: 5 }, { type: 'kicker', at: 0.45 }, { type: 'stairs', a: 0.55, b: 0.6, h: 4 }, { type: 'kicker', at: 0.7 }, { type: 'stairs', a: 0.75, b: 0.82, h: 5 }, { type: 'drop', at: 0.9, h: 2 }],
+    },
+    {
+      id: 'dh_alpine', name: 'Альпийский ледник', env: 'alpine', dh: true, open: true, tier: 3, level: 8, laps: 1, width: 6.5, offSurface: 'grass', prize: 1400,
+      focus: 'Устойчивость на скорости', desc: 'Скоростной горный спуск на 190 м вниз: каменные поля, виражи, уступы и прыжки над склоном.',
+      points: [[0, 0, 190], [80, 30, 180], [150, 90, 168], [110, 160, 155], [30, 200, 142], [-40, 260, 128], [0, 330, 114], [90, 360, 100], [170, 420, 86], [140, 500, 70], [60, 540, 58], [0, 610, 44], [50, 680, 30], [130, 720, 18], [200, 780, 6], [260, 820, 0]],
+      surfaces: [[0, 0.2, 'rock'], [0.2, 0.35, 'dirt'], [0.35, 0.5, 'rock'], [0.5, 0.62, 'gravel'], [0.62, 0.8, 'dirt'], [0.8, 0.9, 'rock'], [0.9, 1, 'grass']],
+      features: [{ type: 'kicker', at: 0.25 }, { type: 'drop', at: 0.45, h: 3 }, { type: 'kicker', at: 0.58 }, { type: 'drop', at: 0.75, h: 4 }, { type: 'kicker', at: 0.88 }],
+    },
+    {
+      id: 'dh_canyon', name: 'Красный каньон', env: 'canyon', dh: true, open: true, tier: 4, level: 12, laps: 1, width: 7, offSurface: 'sand', prize: 2200,
+      focus: 'Прыжки, подвеска, бесстрашие', desc: 'Фрирайд по хребтам из песчаника, как на легендарном Rampage: огромные уступы и перепад 230 м.',
+      points: [[0, 0, 230], [70, 40, 215], [130, 100, 196], [100, 170, 176], [30, 210, 158], [-20, 280, 136], [30, 340, 114], [110, 370, 94], [170, 440, 72], [130, 520, 50], [60, 560, 32], [40, 640, 14], [90, 700, 0]],
+      surfaces: [[0, 0.3, 'rock'], [0.3, 0.5, 'sand'], [0.5, 0.75, 'rock'], [0.75, 0.9, 'dirt'], [0.9, 1, 'sand']],
+      features: [{ type: 'drop', at: 0.18, h: 3.5 }, { type: 'kicker', at: 0.35 }, { type: 'drop', at: 0.52, h: 4 }, { type: 'kicker', at: 0.68 }, { type: 'drop', at: 0.82, h: 5 }],
+    },
+  ];
+  // Линия прохождения на спуске (вместо тактики).
+  const DH_LINES = [
+    { id: 'safe', name: 'Аккуратно', icon: '🛡️', corner: -0.05, land: 3, desc: 'Раньше тормозит, мягче приземляется. Медленнее, зато без падений.' },
+    { id: 'race', name: 'Гоночная линия', icon: '🏁', corner: 0, land: 0, desc: 'Баланс скорости и риска.' },
+    { id: 'send', name: 'На грани', icon: '🔥', corner: 0.05, land: -2.5, desc: 'Поздние торможения и полёты на полной скорости. Можно упасть.' },
+  ];
+
   window.GameData = {
     STAT_KEYS, STAT_NAMES, SURFACES, WHEELS, WHEEL_SIZE_NAMES, BIKE_TYPES, BIKES, UPGRADES, MAX_UPGRADE,
-    TRACKS, EXTRA_TRACKS, TRI_SKILLS, ENVIRONMENTS, BOT_NAMES, BOT_COLORS, START_MONEY, PRIZE_SHARE, RIDER_SKILLS, RIDER_MAX, TACTICS,
+    TRACKS, EXTRA_TRACKS, TRI_SKILLS, ENVIRONMENTS, BOT_NAMES,
+    DH_STAT_KEYS, DH_STAT_NAMES, DH_UPGRADES, DH_TRACKS, DH_LINES,
+    isDh: (b) => !!(b && (b.dh || (typeof b === 'string' && BIKES.find((x) => x.id === b && x.dh)))), BOT_COLORS, START_MONEY, PRIZE_SHARE, RIDER_SKILLS, RIDER_MAX, TACTICS,
     bikeById: (id) => BIKES.find((b) => b.id === id),
-    trackById: (id) => TRACKS.find((t) => t.id === id) || EXTRA_TRACKS.find((t) => t.id === id),
+    trackById: (id) => TRACKS.find((t) => t.id === id) || EXTRA_TRACKS.find((t) => t.id === id) || DH_TRACKS.find((t) => t.id === id),
   };
 })();

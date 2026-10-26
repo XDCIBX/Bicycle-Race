@@ -21,15 +21,18 @@
   // roster — постоянный состав соперников (в чемпионате имена и цвета не меняются от этапа к этапу).
   function makeBots(track, count, rnd, roster, tierOverride) {
     const t = tierOverride || track.def.tier;
+    const dh = !!track.def.dh;
+    const lvl = Math.min(D.RIDER_MAX, (t - 1) * 2);
     // В чемпионате соперники ездят на технике не выше уровня чемпионата.
-    const pool = D.BIKES.filter((b) => b.tier >= t - 1 && b.tier <= (roster ? t : Math.max(2, t + 1)));
+    // На даунхилле — только DH-байки, на остальных трассах — только обычные.
+    const pool = D.BIKES.filter((b) => !!b.dh === dh && b.tier >= t - 1 && b.tier <= (roster ? t : Math.max(2, t + 1)));
     const options = pool.map((b) => {
       const upgrades = {};
-      D.UPGRADES.forEach((u) => { upgrades[u.id] = clamp(BOT_UPGRADES[t - 1] + (rnd() < 0.4 ? 1 : 0), 0, D.MAX_UPGRADE); });
+      (dh ? D.DH_UPGRADES : D.UPGRADES).forEach((u) => { upgrades[u.id] = clamp(BOT_UPGRADES[t - 1] + (rnd() < 0.4 ? 1 : 0), 0, D.MAX_UPGRADE); });
       let best = null;
       Object.keys(D.WHEELS).forEach((wid) => {
         if (!b.sizes.includes(D.WHEELS[wid].size)) return;
-        const st = GS.effectiveStats(b.id, upgrades, wid);
+        const st = dh ? GS.dhPhysicsStats(GS.dhStats(b.id, upgrades, wid, { power: lvl, technique: lvl })) : GS.effectiveStats(b.id, upgrades, wid);
         const lap = window.Tracks.estimateLap(track, st, wid);
         if (!best || lap < best.lap) best = { wheel: wid, lap, stats: st };
       });
@@ -46,7 +49,6 @@
     if (roster) chosen.forEach((c, i) => { chosen[i] = options[Math.min(options.length - 1, Math.floor(i / 2))]; });
     return chosen.map((c, i) => {
       const ro = roster && roster[i];
-      const lvl = Math.min(D.RIDER_MAX, (t - 1) * 2);
       const profile = GS.riderProfile({ endurance: lvl, sprint: lvl, tactics: lvl, technique: lvl });
       profile.corner = 0.95 + t * 0.004;
       return {
@@ -59,6 +61,7 @@
       skill: clamp(BOT_SKILL[t - 1] + (ro ? ro.skillJitter : rnd() * 0.04 - (i === count - 1 ? 0.04 : 0)), 0.75, 0.99),
       jersey: ro ? ro.jersey : D.BOT_COLORS[(i + 1) % D.BOT_COLORS.length],
       helmet: ro ? ro.helmet : ['#ffffff', '#111111', '#e0e0e0'][i % 3],
+      line: dh ? ['race', 'race', 'send', 'safe'][Math.floor(rnd() * 4)] : undefined,
       };
     });
   }
@@ -69,6 +72,9 @@
       this.track = window.Tracks.get(trackId);
       this.def = this.track.def;
       this.laps = this.def.laps;
+      // Даунхилл: заезд с горы на время, соперники — «призраки» (без столкновений).
+      this.dh = !!this.def.dh;
+      if (this.dh) this.camPitch = this.track.env.urban ? 0.98 : 0.86;
       this.time = 0;
       this.state = 'countdown';
       this.countdown = o.countdown != null ? o.countdown : 3.5;
@@ -89,9 +95,9 @@
       const T = this.track;
       this.riders = entries.map((e, i) => {
         const row = Math.floor(i / 2), col = i % 2;
-        const s = T.L - 5 - row * 5;
+        const s = this.dh ? 3 : T.L - 5 - row * 5;
         const p = T.sampleAt(s);
-        const lat = (col ? -1 : 1) * T.hw * 0.4;
+        const lat = this.dh ? ((i + 0.5) / entries.length - 0.5) * T.hw * 1.2 : (col ? -1 : 1) * T.hw * 0.4;
         return Object.assign(e, {
           x: p.x + p.nx * lat, y: p.y + p.ny * lat, z: p.z, heading: p.ang, v: 0,
           idx: -1, lat, s, lap: -1, prevS: s, steer: 0, lean: 0, pedal: this.rnd() * 6,
@@ -99,7 +105,8 @@
           input: { throttle: false, brake: false, steer: 0, sprint: false },
           lane: (this.rnd() - 0.5) * 0.8, laneT: 0, surface: p.surface, onRoad: true,
           wrongWay: 0, skid: 0, lastLapStart: 0, bestLap: 0,
-        });
+          zr: p.z, vz: 0, air: false, airH: 0, crash: 0, ghost: this.dh && !e.isPlayer,
+        }, this.dh ? { lap: 0, dhLine: D.DH_LINES.find((l) => l.id === (e.line || 'race')) || D.DH_LINES[1] } : {});
       });
       this.riders.forEach((r) => {
         const l = T.locate(r.x, r.y, null);
@@ -112,8 +119,8 @@
       this.focus = this.player;
     }
 
-    progress(r) { return r.lap * this.track.L + r.s; }
-    fraction(r) { return clamp(this.progress(r) / (this.laps * this.track.L), 0, 1); }
+    progress(r) { return this.dh ? r.s : r.lap * this.track.L + r.s; }
+    fraction(r) { return clamp(this.progress(r) / (this.dh ? this.track.finishS : this.laps * this.track.L), 0, 1); }
 
     // Ручной спурт игрока: велосипед едет сам, но рывок можно скомандовать.
     sprintNow() {
@@ -138,7 +145,7 @@
           this.ai(r, h);
           this.step(r, h);
         }
-        this.collide();
+        if (!this.dh) this.collide();
       }
       this.updatePlaces();
       this.updateParticles(dt);
@@ -172,7 +179,7 @@
       const wantsDraft = !r.sprinting && r.tactic !== 'attack' && r.energy < r.profile.energyMax * 0.95;
       let tooClose = false;
       for (const o of this.riders) {
-        if (o === r) continue;
+        if (o === r || this.dh) continue;
         const ds = ((o.s - r.s + T.L * 1.5) % T.L) - T.L / 2;
         if (ds > 0 && ds < 9 && Math.abs(o.lat - r.lat) < 1.6) {
           if (wantsDraft && o.v > r.v * 0.85 && ahead.curvMax < 0.015) {
@@ -197,13 +204,14 @@
         const p = T.sampleAt(r.s + d);
         if (p.curvMax < 0.004) continue;
         const g = P.surfaceGrip(st, r.wheel, p.surface);
-        const vc = Math.sqrt(P.latGrip(st) * g / p.curvMax) * r.profile.corner;
+        const vc = Math.sqrt(P.latGrip(st) * g / p.curvMax) * r.profile.corner * (1 + (r.dhLine ? r.dhLine.corner : 0));
         if (r.v > vc) {
           const need = (r.v * r.v - vc * vc) / (2 * brake);
           if (need >= d - 2) { mustBrake = true; break; }
           if (need >= d - 8) coast = true;
         }
       }
+      if (r.finished && this.dh) mustBrake = true; // после финиша — тормозим в зоне остановки
       inp.brake = mustBrake;
       inp.throttle = !mustBrake && !coast && !(tooClose && r.v > 6);
       inp.sprint = inp.throttle && this.wantsSprint(r);
@@ -242,15 +250,18 @@
       // Учёт кругов при пересечении линии старта.
       const prev = r.s;
       r.s = loc.s;
-      if (prev > T.L * 0.75 && r.s < T.L * 0.25) this.crossLine(r, 1);
+      if (this.dh) {
+        if (!r.finished && r.s >= T.finishS && this.state !== 'countdown') this.finish(r);
+      } else if (prev > T.L * 0.75 && r.s < T.L * 0.25) this.crossLine(r, 1);
       else if (prev < T.L * 0.25 && r.s > T.L * 0.75) this.crossLine(r, -1);
 
       const onRoad = Math.abs(loc.lat) <= T.hw + 0.3;
       r.onRoad = onRoad;
       r.surface = onRoad ? p.surface : this.def.offSurface;
-      r.z += (p.z - r.z) * Math.min(1, dt * 12);
       const locked = this.state === 'countdown';
       const inp = r.input;
+      if (this.dh) { this.stepDh(r, dt, loc, p, locked); return; }
+      r.z += (p.z - r.z) * Math.min(1, dt * 12);
 
       const slip = r.surface === 'snow' || r.surface === 'sand' ? (r.profile.slipGrip || 1) : 1;
       const grip = P.surfaceGrip(st, r.wheel, r.surface) * (onRoad ? 1 : 0.9) * slip;
@@ -349,10 +360,134 @@
         if (!r.bestLap || lapTime < r.bestLap) r.bestLap = lapTime;
       }
       if (dir > 0) r.lastLapStart = this.time;
-      if (dir > 0 && r.lap >= this.laps && !r.finished) {
-        r.finished = true;
-        r.finishTime = this.time;
-        this.finishOrder.push(r);
+      if (dir > 0 && r.lap >= this.laps && !r.finished) this.finish(r);
+    }
+
+    finish(r) {
+      r.finished = true;
+      r.finishTime = this.time;
+      this.finishOrder.push(r);
+    }
+
+    // ══ Даунхилл ══════════════════════════════════════════════════
+    // Скорость задаёт уклон, устойчивость и подвеска; на кикерах и дропах — полёт,
+    // на приземлении удар гасят подвеска и навык прыжков. Слишком жёстко — падение.
+    stepDh(r, dt, loc, p, locked) {
+      const T = this.track, st = r.stats, inp = r.input, pr = r.profile;
+      const line = r.dhLine || D.DH_LINES[1];
+      const onRoad = Math.abs(loc.lat) <= T.hw + 0.3;
+      r.onRoad = onRoad;
+      r.surface = onRoad ? p.surface : this.def.offSurface;
+      const gp = T.pointAt(r.s);
+      const ground = gp.z + T.rampAt(r.s);
+      const grade = p.grade * Math.cos(r.heading - p.ang);
+      const grip = P.surfaceGrip(st, r.wheel, r.surface) * (onRoad ? 1 : 0.85);
+      r.sprinting = !!(inp.sprint && r.energy > 1 && inp.throttle && !locked && !r.air && r.crash <= 0);
+      let vmax = P.dhVmax(st, r.wheel, r.surface, grade) * (onRoad ? 1 : 0.7) * (r.skill || 1) * (1 + line.corner * 0.6);
+      if (r.sprinting) vmax *= 1 + (pr.sprintBoost - 1) * 0.6;
+      if (grade < -0.02) vmax *= pr.descend || 1;
+      if (this.fraction(r) > 0.93) vmax *= pr.finalKick || 1;
+      r.vmax = vmax;
+
+      if (r.crash > 0) {
+        // Упал: встаём и разгоняемся заново.
+        r.crash -= dt;
+        r.v = Math.max(0, r.v - 30 * dt);
+      } else if (!locked && !r.air) {
+        const down = Math.max(0, -grade);
+        if (inp.throttle && r.v < vmax) {
+          const acc = P.accel(st) * 0.55 * (r.sprinting ? 1.3 : 1) + down * 14;
+          r.v += acc * (1 - r.v / (vmax + 0.01)) * dt * 1.6 + down * 4 * dt;
+        } else if (!inp.throttle) {
+          r.v -= (0.35 + D.SURFACES[r.surface].rough * 2) * dt + 4.5 * grade * dt;
+        }
+        if (r.v > vmax) r.v -= (r.v - vmax) * 1.5 * dt;
+        if (inp.brake) r.v -= P.brake(st) * Math.min(1, grip + 0.2) * dt;
+        if (r.finished) r.v -= 6 * dt;
+        r.v = Math.max(0, r.v);
+      } else if (r.air) r.v -= 0.15 * dt;
+
+      if (r.sprinting) r.energy = Math.max(0, r.energy - 20 * (pr.sprintCost || 1) * dt);
+      else r.energy = Math.min(pr.energyMax, r.energy + pr.regen * (inp.throttle ? 1 : 1.8) * dt);
+
+      // Вертикальное движение: отрыв на трамплине или на уступе, полёт, приземление.
+      const G = 16;
+      let tookOff = false;
+      if (!r.air) {
+        const da = Math.max(0.5, r.v * dt * 2);
+        const ahead = T.pointAt(r.s + da).z + T.rampAt(r.s + da);
+        if (p.kicker && r.v > 4 && !locked && r.kickIdx !== p.idx) {
+          r.kickIdx = p.idx;
+          r.air = true; tookOff = true; r.vz = r.v * 0.22 * (0.8 + (st.jump || 50) / 250); r.zr = ground;
+        } else if (ground - ahead > da * 0.9 + 0.08 && r.v > 3) {
+          r.air = true; tookOff = true; r.vz = 0; r.zr = ground;
+        } else {
+          r.zr = ground;
+        }
+      }
+      if (r.air && !tookOff) {
+        r.vz -= G * dt;
+        r.zr += r.vz * dt;
+        if (r.zr <= ground) {
+          r.air = false;
+          // Приземление на уклон («в транзишн») гасит часть удара.
+          const impact = Math.max(0, -r.vz + r.v * Math.min(0, grade) * 1.5);
+          const tol = 4 + (st.jump || 50) * 0.06 + (st.suspension || 50) * 0.04 + line.land;
+          r.zr = ground; r.vz = 0;
+          r.lastImpact = impact - tol;
+          if (impact > tol + 4) {
+            r.crash = 1.6; r.v *= 0.25;
+            r.crashes = (r.crashes || 0) + 1;
+            if (r.isPlayer) this.events.push({ t: this.time, text: '💥 Падение! Слишком жёсткое приземление' });
+          } else if (impact > tol) {
+            r.v *= 1 - Math.min(0.4, (impact - tol) * 0.09);
+            if (r.isPlayer && (this.time - (r.lastHard || -9)) > 3) { r.lastHard = this.time; this.events.push({ t: this.time, text: '😬 Жёсткое приземление' }); }
+          } else if (r.isPlayer && impact > 2 && (this.time - (r.lastNice || -9)) > 3) {
+            r.lastNice = this.time; this.events.push({ t: this.time, text: '🛬 Чистое приземление!' });
+          }
+        }
+      }
+      r.airH = Math.max(0, r.zr - gp.z);
+      r.z = r.zr;
+
+      // Руление: в воздухе почти не повернуть.
+      r.steer += (inp.steer - r.steer) * Math.min(1, dt * 9);
+      let omega = r.steer * P.turnRate(st) * Math.min(1, r.v / 3.5) * (r.air ? 0.25 : 1);
+      const omegaMax = P.latGrip(st) * grip / Math.max(r.v, 1);
+      r.skid = 0;
+      if (!r.air && Math.abs(omega) > omegaMax) {
+        const excess = Math.abs(omega) / omegaMax;
+        omega = Math.sign(omega) * omegaMax;
+        if (excess > 1.25) {
+          r.v *= 1 - Math.min(0.9, (excess - 1.25) * 0.35) * dt;
+          r.skid = Math.min(1, (excess - 1.25) * 0.5);
+        }
+      }
+      if (r.crash > 0) omega = 0;
+      r.heading = wrapAngle(r.heading - omega * dt);
+      r.lean += (clamp(omega * r.v / 14, -1, 1) - r.lean) * Math.min(1, dt * 6);
+      r.x += Math.cos(r.heading) * r.v * dt;
+      r.y += Math.sin(r.heading) * r.v * dt;
+      r.odo = (r.odo || 0) + r.v * dt;
+      r.sprintHold = r.sprinting ? 0.5 : Math.max(0, (r.sprintHold || 0) - dt);
+      r.climbing = false;
+      r.standing = !locked && r.crash <= 0;
+      r.pedal += (inp.throttle && !locked && !r.air && (r.sprinting || grade > -0.08) ? r.v * 0.3 + 2 : 0) * dt;
+      if (Math.abs(loc.lat) > T.hw + 20) {
+        r.x -= p.nx * Math.sign(loc.lat) * 6 * dt;
+        r.y -= p.ny * Math.sign(loc.lat) * 6 * dt;
+      }
+      r.wrongWay = 0;
+
+      // Пыль и камешки из-под колёс.
+      const sf = D.SURFACES[r.surface];
+      const dustCol = sf.dust || (r.skid > 0.3 ? 'rgba(220,220,220,1)' : null);
+      if (dustCol && !r.air && r.v > 5 && this.particles.length < 300 && this.rnd() < (r.v / 50 + r.skid) * dt * 30) {
+        this.particles.push({
+          x: r.x - Math.cos(r.heading) * 0.8, y: r.y - Math.sin(r.heading) * 0.8, z: r.z + 0.1,
+          vx: (this.rnd() - 0.5) * 2, vy: (this.rnd() - 0.5) * 2, vz: 0.8 + this.rnd(),
+          life: 0.8, max: 0.8, r: 0.12 + this.rnd() * 0.18, c: dustCol, alpha: 0.45, grow: 0.7, floor: r.z - r.airH,
+        });
       }
     }
 
@@ -393,7 +528,7 @@
         p.life -= dt;
         p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
         p.vz -= 1.5 * dt;
-        if (p.z < 0) p.z = 0;
+        if (p.z < (p.floor || 0)) p.z = p.floor || 0;
         p.r += p.grow * dt;
       }
       this.particles = this.particles.filter((p) => p.life > 0);
@@ -404,7 +539,10 @@
       const total = this.laps * this.track.L;
       const res = this.riders.map((r) => {
         let t = r.finishTime;
-        if (!r.finished) {
+        if (!r.finished && this.dh) {
+          const avg = Math.max(4, r.s / Math.max(1, this.time));
+          t = this.time + Math.max(0.5, (this.track.finishS - r.s) / avg);
+        } else if (!r.finished) {
           const done = Math.max(1, this.progress(r) + this.track.L - (this.track.L - 5));
           const avg = Math.max(4, done / Math.max(1, this.time));
           t = this.time + Math.max(0.5, (total - this.progress(r)) / avg);

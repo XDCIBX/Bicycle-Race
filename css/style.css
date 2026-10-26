@@ -274,7 +274,7 @@ table.standings .num { text-align: right; }
 .tri-legs i { font-style: normal; opacity: .6; font-size: 16px; }
 
 /* ── Дерево навыков ───────────────────────────────────── */
-.tree { display: grid; grid-template-columns: repeat(5, minmax(200px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 6px; }
+.tree { display: grid; grid-template-columns: repeat(6, minmax(190px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 6px; }
 .branch { background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--bc); border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; align-items: stretch; }
 .branch-head { display: flex; gap: 8px; align-items: center; font-size: 16px; margin-bottom: 8px; }
 .branch-head span { font-size: 24px; }
@@ -325,7 +325,7 @@ table.standings .num { text-align: right; }
 .tri-controls button.on { background: rgba(255, 212, 0, .92); color: #1a1500; }
 
 @media (max-width: 860px) {
-  .tree { grid-template-columns: repeat(5, 78vw); scroll-snap-type: x mandatory; }
+  .tree { grid-template-columns: repeat(6, 78vw); scroll-snap-type: x mandatory; }
   .branch { scroll-snap-align: start; }
   .tabs button { font-size: 10px; }
   .tabs button i { font-size: 20px; }

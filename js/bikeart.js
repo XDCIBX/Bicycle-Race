@@ -42,6 +42,7 @@
     enduro: { rim: 311, tire: 62, cs: 442, drop: 30, ha: 64.5, sa: 76.5, stack: 630, reach: 470, ht: 110, rake: 44, st: 420, saddle: 700, bar: 'riser', fork: 150, rear: 'enduro', tubes: [44, 64, 40, 20, 30, 60] },
     fat: { rim: 280, tire: 110, cs: 455, drop: 40, ha: 69, sa: 73, stack: 620, reach: 410, ht: 120, rake: 50, st: 430, saddle: 700, bar: 'riser', tubes: [40, 54, 36, 22, 28, 56] },
     bmx: { rim: 203, tire: 58, cs: 340, drop: -20, ha: 74.5, sa: 71, stack: 250, reach: 410, ht: 115, rake: 28, st: 230, saddle: 300, bar: 'bmx', tubes: [34, 38, 30, 18, 20, 44] },
+    dh: { rim: 311, tire: 63, cs: 450, drop: 18, ha: 63, sa: 77, stack: 650, reach: 460, ht: 100, rake: 52, st: 390, saddle: 600, bar: 'riser', fork: 200, rear: 'enduro', tubes: [50, 70, 44, 24, 34, 64] },
     folding: { rim: 174, tire: 35, cs: 470, drop: -55, ha: 72, sa: 72, stack: 470, reach: 470, ht: 130, rake: 30, st: 380, saddle: 740, bar: 'brompton', tubes: [52, 0, 36, 16, 20, 44] },
   };
 
@@ -49,14 +50,14 @@
     Specialized: 'ROVAL', Giant: 'CADEX', Canyon: 'DT SWISS', 'Cervélo': 'RESERVE', Pinarello: 'PRINCETON',
     Colnago: 'ENVE', Bianchi: 'VISION', Cannondale: 'HOLLOWGRAM', Orbea: 'OQUO', Scott: 'SYNCROS', Trek: 'BONTRAGER',
   };
-  const FORK_BRAND = { enduro: 'FOX 36', xc: 'ROCKSHOX SID', mtb: 'ROCKSHOX' };
+  const FORK_BRAND = { enduro: 'FOX 36', xc: 'ROCKSHOX SID', mtb: 'ROCKSHOX', dh: 'FOX 40' };
 
   function build(bike, wheelId) {
     const g = Object.assign({}, GEO[bike.type] || GEO.road);
     const wheel = D.WHEELS[wheelId || bike.stockWheel];
     const look = bike.look || {};
     // Ширина покрышки зависит от установленных колёс.
-    const tireBySize = { road: 27, gravel: 42, mtb: 58, fat: 110, bmx: 58, folding: 35 };
+    const tireBySize = { road: 27, gravel: 42, mtb: 58, fat: 110, bmx: 58, folding: 35, dh: 63 };
     if (wheel && tireBySize[wheel.size]) g.tire = tireBySize[wheel.size] + (/2\.5|4\.6|45/.test(wheel.name) ? 6 : 0);
     const rimKind = wheel && wheel.size === 'road' && /Zipp/.test(wheel.name) ? 'carbon58' : look.rims || 'alu';
 
@@ -300,6 +301,12 @@
       out.push(line(add(stEnd, mul(dHead, -30)), F, `stroke="#fff" stroke-opacity=".12" stroke-width="6"`));
       out.push(textAlong(add(stEnd, mul(dHead, -10)), F, 0.45, FORK_BRAND[bike.type] || 'ROCKSHOX', 15, gold ? '#f2c230' : '#e33', { ls: 0.12 }));
       out.push(`<rect x="${f(crown.x - 34)}" y="${f(-crown.y - 14)}" width="68" height="28" rx="10" fill="#18191c" transform="rotate(${f(90 - g.ha)} ${f(crown.x)} ${f(-crown.y)})"/>`);
+      if (bike.type === 'dh') {
+        // Двухкоронная вилка: ноги продолжаются выше рулевой трубы до верхней короны.
+        const top = add(H, mul(dHead, -40));
+        out.push(line(top, crown, `stroke="url(#${sid})" stroke-width="30" stroke-linecap="round"`));
+        out.push(`<rect x="${f(top.x - 36)}" y="${f(-top.y - 13)}" width="72" height="26" rx="10" fill="#18191c" transform="rotate(${f(90 - g.ha)} ${f(top.x)} ${f(-top.y)})"/>`);
+      }
     } else {
       const crown = add(HB, mul(dHead, 6));
       const ctrl = add(lerp(crown, F, 0.55), mul(rakeDir, g.rake * 0.6));
