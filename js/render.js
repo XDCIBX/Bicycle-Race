@@ -19,11 +19,15 @@
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d');
       this.cam = { x: 0, y: 0, z: 0, a: 0, B: 18, H: 20, pitch: 0.8 };
+      // Качество (доля от devicePixelRatio): снижается автоматически, если кадры не успевают.
+      this.quality = 1;
+      this.lowDetail = false;
       this.colorCache = {};
     }
 
     resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.max(0.75, Math.min(window.devicePixelRatio || 1, 2) * this.quality);
+      this.lowDetail = this.quality < 0.8;
       const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
       this.canvas.width = Math.round(w * dpr);
       this.canvas.height = Math.round(h * dpr);
@@ -89,7 +93,9 @@
       while (d < -Math.PI) d += 2 * Math.PI;
       c.a += d * Math.min(1, race.dt * 4.5);
       const sp = Math.min(1, t.v / 28);
-      c.B = 13 + sp * 4; c.H = 14.5 + sp * 3;
+      // Камера ближе к участнику: в триатлоне (пловцы и бегуны) — заметно ближе.
+      const zoom = race.camZoom || 0.9;
+      c.B = (13 + sp * 4) * zoom; c.H = (14.5 + sp * 3) * zoom;
       c.ca = Math.cos(c.a); c.sa = Math.sin(c.a);
       c.cp = Math.cos(c.pitch); c.sp = Math.sin(c.pitch);
       // Позиция камеры в мире (для отсечения граней зданий).
@@ -121,12 +127,14 @@
       this.drawLakes(track);
       this.drawDecals(track);
       this.drawRoad(track, race);
+      if (race.groundDecor) race.groundDecor.forEach((g) => this.poly(g.pts, g.fill));
       this.drawParticles(race, true);
 
       // Объекты и гонщики, отсортированные от дальних к ближним.
       const list = [];
       const R2 = VIEW * VIEW;
-      for (const o of track.objects) {
+      const objs = race.extraObjects && race.extraObjects.length ? track.objects.concat(race.extraObjects) : track.objects;
+      for (const o of objs) {
         const dx = o.x - c.x, dy = o.y - c.y;
         if (dx * dx + dy * dy > R2) continue;
         const p = this.toCam(o.x, o.y, o.z);
@@ -165,11 +173,12 @@
     // Неоднородная земля: мягкие пятна светлее/темнее основного цвета; на воде — блики волн.
     drawGround(track) {
       const c = this.cam, ctx = this.ctx;
-      const CELL = 11, R = 125;
+      const water = track.env.water;
+      if (this.lowDetail && !water) return;
+      const CELL = 11, R = this.lowDetail ? 90 : 125;
       const fx = c.x + c.ca * 40, fy = c.y + c.sa * 40;
       const x0 = Math.floor((fx - R) / CELL), x1 = Math.floor((fx + R) / CELL);
       const y0 = Math.floor((fy - R) / CELL), y1 = Math.floor((fy + R) / CELL);
-      const water = track.env.water;
       for (let gx = x0; gx <= x1; gx++) {
         for (let gy = y0; gy <= y1; gy++) {
           let h = Math.imul(gx * 374761393 + gy * 668265263, 1274126177) >>> 0;
@@ -226,6 +235,7 @@
 
     // Тени облаков медленно плывут по земле.
     drawClouds(track) {
+      if (this.lowDetail) return;
       const b = track.bounds, c = this.cam;
       const w = b.maxX - b.minX + 400, h = b.maxY - b.minY + 400;
       for (let k = 0; k < 5; k++) {
@@ -490,9 +500,11 @@
           ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(top[0], top[1]); ctx.stroke();
           const r = (2.2 + o.seed * 1.4) * top[2];
           const autumn = o.seed > 0.86;
-          const g = ctx.createRadialGradient(top[0] - r * 0.4, top[1] - r * 0.45, r * 0.1, top[0], top[1], r * 1.1);
-          g.addColorStop(0, autumn ? '#ffd166' : '#7cc95a'); g.addColorStop(0.55, autumn ? '#e07a2f' : '#3f8a35'); g.addColorStop(1, autumn ? '#9a4b1c' : '#24561f');
-          ctx.fillStyle = g;
+          if (r > 14 && !this.lowDetail) {
+            const g = ctx.createRadialGradient(top[0] - r * 0.4, top[1] - r * 0.45, r * 0.1, top[0], top[1], r * 1.1);
+            g.addColorStop(0, autumn ? '#ffd166' : '#7cc95a'); g.addColorStop(0.55, autumn ? '#e07a2f' : '#3f8a35'); g.addColorStop(1, autumn ? '#9a4b1c' : '#24561f');
+            ctx.fillStyle = g;
+          } else ctx.fillStyle = autumn ? '#d0702a' : '#3f8a35';
           ctx.beginPath();
           for (let k = 0; k < 7; k++) {
             const a = k / 7 * Math.PI * 2 + o.seed * 4;
@@ -761,7 +773,8 @@
           const ca = Math.cos(o.ang), sa = Math.sin(o.ang);
           this.poly([[o.x - ca * 0.6, o.y - sa * 0.6, o.z + 1.2], [o.x + ca * 0.6, o.y + sa * 0.6, o.z + 1.2], [o.x + ca * 0.6, o.y + sa * 0.6, o.z + 2], [o.x - ca * 0.6, o.y - sa * 0.6, o.z + 2]], '#f5f5f5');
           const dist = o.n * 200;
-          if (s > 10) this.planeText(o.x - ca * 0.6, o.y - sa * 0.6, o.x + ca * 0.6, o.y + sa * 0.6, o.z + 1.2, dist >= 1000 ? `${(dist / 1000).toFixed(1).replace('.0', '')} км` : `${dist} м`, 0.42, '#1b1b1b');
+          const txt = o.label || (dist >= 1000 ? `${(dist / 1000).toFixed(1).replace('.0', '')} км` : `${dist} м`);
+          if (s > 10) this.planeText(o.x - ca * 0.6, o.y - sa * 0.6, o.x + ca * 0.6, o.y + sa * 0.6, o.z + 1.2, txt, 0.42, '#1b1b1b');
           break;
         }
         case 'car': {
@@ -788,9 +801,8 @@
           const q = this.project(o.x, o.y, r * 0.7 + bob);
           if (!q) return;
           ctx.fillStyle = 'rgba(0,30,60,0.3)'; ctx.beginPath(); ctx.ellipse(base[0], base[1], r * 1.3 * s, r * 0.6 * s, 0, 0, 7); ctx.fill();
-          const g = ctx.createRadialGradient(q[0] - r * 0.35 * q[2], q[1] - r * 0.35 * q[2], 1, q[0], q[1], r * q[2]);
-          g.addColorStop(0, o.big ? '#ffd2a0' : '#fff6b0'); g.addColorStop(1, o.big ? '#f26b00' : '#e8c400');
-          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q[0], q[1], r * q[2], 0, 7); ctx.fill();
+          ctx.fillStyle = o.big ? '#f26b00' : '#e8c400'; ctx.beginPath(); ctx.arc(q[0], q[1], r * q[2], 0, 7); ctx.fill();
+          ctx.fillStyle = o.big ? '#ffd2a0' : '#fff6b0'; ctx.beginPath(); ctx.arc(q[0] - r * 0.3 * q[2], q[1] - r * 0.3 * q[2], r * 0.45 * q[2], 0, 7); ctx.fill();
           if (o.big) { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(q[0] - r * q[2], q[1] - 0.1 * q[2], 2 * r * q[2], 0.2 * q[2]); }
           break;
         }
@@ -819,6 +831,32 @@
           } else {
             const q = this.project(...P(0, 0, 0.9));
             if (q) { ctx.fillStyle = '#ffd400'; ctx.beginPath(); ctx.arc(q[0], q[1], 0.3 * q[2], 0, 7); ctx.fill(); }
+          }
+          break;
+        }
+        case 'rack': {
+          // Велостойка транзитной зоны: перекладина и велосипеды, подвешенные за седло.
+          const dx = o.x2 - o.x1, dy = o.y2 - o.y1, L = Math.hypot(dx, dy);
+          const ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+          const n = Math.floor(L / 1.3);
+          for (let i = 0; i <= n; i++) {
+            const t = i / n, bx = o.x1 + dx * t, by = o.y1 + dy * t;
+            const side = i % 2 ? 1 : -1;
+            const col = o.cols[(i * 3 + Math.floor(o.seed * 10)) % o.cols.length];
+            const w = (u, h) => this.project(bx + nx * u * side, by + ny * u * side, o.z + h);
+            const wa = w(-0.15, 0.35), wb2 = w(-0.85, 0.35), wc = w(0.55, 0.35), wd = w(-0.1, 1.15), we = w(0.5, 0.95);
+            if (!wa || !wb2 || !wc || !wd || !we) continue;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#141416'; ctx.lineWidth = Math.max(1.5, 0.07 * wa[2]);
+            ctx.beginPath(); ctx.moveTo(w(-1.2, 0.35)[0], w(-1.2, 0.35)[1]); ctx.lineTo(wb2[0], wb2[1]); ctx.moveTo(w(0.25, 0.35)[0], w(0.25, 0.35)[1]); ctx.lineTo(w(0.9, 0.35)[0], w(0.9, 0.35)[1]); ctx.stroke();
+            ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 0.05 * wa[2]);
+            ctx.beginPath(); ctx.moveTo(wb2[0], wb2[1]); ctx.lineTo(wd[0], wd[1]); ctx.lineTo(we[0], we[1]); ctx.lineTo(wc[0], wc[1]); ctx.stroke();
+          }
+          const p1 = this.project(o.x1, o.y1, o.z + 1.15), p2 = this.project(o.x2, o.y2, o.z + 1.15);
+          const q1 = this.project(o.x1, o.y1, o.z), q2 = this.project(o.x2, o.y2, o.z);
+          if (p1 && p2 && q1 && q2) {
+            ctx.strokeStyle = '#b8bec6'; ctx.lineWidth = Math.max(1.5, 0.08 * q1[2]);
+            ctx.beginPath(); ctx.moveTo(q1[0], q1[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]); ctx.lineTo(q2[0], q2[1]); ctx.stroke();
           }
           break;
         }
@@ -906,79 +944,330 @@
       }
     }
 
-    // Гонщик: локальная аффинная проекция, поэтому велосипед корректно «лежит» на дороге.
-    // Пловец кролем: тело под водой, голова в шапочке, гребки руками, брызги и кильватер.
-    drawSwimmer(r, pt, k, seg, blob) {
-      const ph = r.phase || 0;
-      const skin = '#e2b391';
-      // Кильватерный след.
-      seg(pt(-0.2, 1.0, 0), pt(-0.45, 1.8, 0), 0.06, 'rgba(255,255,255,0.22)');
-      seg(pt(0.2, 1.0, 0), pt(0.45, 1.8, 0), 0.06, 'rgba(255,255,255,0.22)');
-      blob(pt(0, 0.35, -0.05), 0.24, 0.95, 'rgba(8,35,65,0.55)');
-      blob(pt(0, 0.2, -0.02), 0.18, 0.5, window.Render.shade(r.jersey, 0.55));
-      // Работа ног — пена.
-      for (const sgn of [-1, 1]) blob(pt(sgn * 0.12, 1.25 + Math.sin(ph * 2 + sgn) * 0.08, 0.02), 0.09, 0.13, 'rgba(255,255,255,0.8)');
-      // Руки: одна над водой (пронос), другая под водой (гребок).
-      for (const sgn of [-1, 1]) {
-        const a = ph + (sgn > 0 ? 0 : Math.PI);
-        const sh = pt(sgn * 0.2, -0.25, 0.08);
-        if (Math.sin(a) > 0) {
-          const hand = pt(sgn * 0.28, -0.25 - 0.75 * (1 - Math.cos(a)) / 2, 0.15 + 0.4 * Math.sin(a));
-          seg(sh, hand, 0.09, skin);
-          blob(hand, 0.05, 0.06, skin);
-        } else {
-          const hand = pt(sgn * 0.16, -0.95 + 0.9 * (1 - Math.cos(a)) / 2, -0.1);
-          seg(sh, hand, 0.09, 'rgba(226,179,145,0.45)');
-          if (Math.cos(a) > 0.85) blob(pt(sgn * 0.2, -0.95, 0.03), 0.16, 0.1, 'rgba(255,255,255,0.9)');
-        }
-      }
-      // Голова: шапочка и очки, поворот для вдоха.
-      const turn = Math.sin(ph) > 0.85 ? 0.06 : 0;
-      blob(pt(turn, -0.48, 0.12), 0.13, 0.16, r.helmet);
-      blob(pt(turn - 0.02, -0.57, 0.14), 0.1, 0.03, '#111');
-      blob(pt(turn, -0.62, 0.02), 0.18, 0.06, 'rgba(255,255,255,0.55)');
+    // ══ Спрайты участников ══════════════════════════════════════════
+    // Локальная система координат участника: x — вправо, y — назад, h — высота (метры).
+    // Проекция аффинная по трём осям, поэтому фигура корректно «стоит» на дороге в перспективе.
+    spriteFrame(r, scale) {
+      const ctx = this.ctx;
+      const base = this.project(r.x, r.y, r.z);
+      if (!base) return null;
+      const fx = Math.cos(r.heading), fy = Math.sin(r.heading);
+      const pf = this.project(r.x + fx, r.y + fy, r.z);
+      const pr = this.project(r.x + fy, r.y - fx, r.z);
+      const pu = this.project(r.x, r.y, r.z + 1);
+      if (!pf || !pr || !pu) return null;
+      const sc = scale || 1;
+      const F = [(pf[0] - base[0]) * sc, (pf[1] - base[1]) * sc], R = [(pr[0] - base[0]) * sc, (pr[1] - base[1]) * sc], U = [(pu[0] - base[0]) * sc, (pu[1] - base[1]) * sc];
+      const k = Math.hypot(R[0], R[1]);
+      const rot = Math.atan2(-F[0], F[1]);
+      // tilt — наклон вбок (крен), dx — сдвиг всей фигуры вбок.
+      const make = (tilt, dx) => (x, y, h) => {
+        const xx = x + (dx || 0) + h * (tilt || 0);
+        return [base[0] + R[0] * xx - F[0] * y + U[0] * h, base[1] + R[1] * xx - F[1] * y + U[1] * h];
+      };
+      const seg = (a, b, w, col) => {
+        ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, w * k);
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      };
+      const path = (pts, w, col) => {
+        ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, w * k);
+        ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]))); ctx.stroke();
+      };
+      const blob = (c, rx, ry, col) => {
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.ellipse(c[0], c[1], Math.max(0.5, rx * k), Math.max(0.5, ry * k), rot, 0, Math.PI * 2); ctx.fill();
+      };
+      const poly = (pts, col) => {
+        ctx.fillStyle = col; ctx.beginPath();
+        pts.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])));
+        ctx.closePath(); ctx.fill();
+      };
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      return { ctx, base, k, make, pt: make(0, 0), seg, path, blob, poly };
     }
 
-    // Бегун: шаг с фазой, руки в противофазе, стартовый номер на спине.
-    drawRunner(r, pt, k, seg, blob, poly) {
+    // Двухзвенная кинематика (бедро→колено→стопа) в плоскости «вперёд-вверх»: колено выводится вперёд.
+    static ik(hy, hh, fy, fh, L1, L2) {
+      let dy = fy - hy, dh = fh - hh;
+      let d = Math.hypot(dy, dh);
+      const maxD = L1 + L2 - 0.002;
+      if (d > maxD) { dy *= maxD / d; dh *= maxD / d; d = maxD; }
+      d = Math.max(d, 0.05);
+      const a = (L1 * L1 - L2 * L2 + d * d) / (2 * d);
+      const hgt = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+      let ny = -dh / d, nh = dy / d;
+      if (ny > 0) { ny = -ny; nh = -nh; } // колено всегда спереди (y < 0)
+      return [hy + dy * a / d + ny * hgt, hh + dh * a / d + nh * hgt];
+    }
+
+    // Велосипед (без гонщика). Возвращает точки посадки: педали, седло, руль.
+    drawBikeSprite(S, r, bike, tilt, dx) {
+      const t = bike.type;
+      const pt = S.make(tilt, dx);
+      const { seg, blob, poly } = S;
+      const mtbLike = ['mtb', 'enduro', 'xc', 'fat', 'bmx'].includes(t);
+      const tw = t === 'fat' ? 0.11 : mtbLike ? 0.06 : t === 'gravel' ? 0.042 : 0.03;
+      const wheelR = t === 'folding' ? 0.21 : t === 'bmx' ? 0.26 : 0.35;
+      const wb = t === 'folding' ? 0.52 : t === 'bmx' ? 0.48 : t === 'enduro' ? 0.62 : 0.5;
+      const rims = (bike.look && bike.look.rims) || 'alu';
+      const rimCol = rims === 'alu' ? '#c3c8cf' : '#2f3136';
+      const odo = r.odo || 0;
+      // Тень (наклоняется вместе с велосипедом).
+      blob(S.make(0, dx)(0.3 + (tilt || 0) * 0.5, 0.2, 0), 0.3, 1.0, 'rgba(0,0,0,0.24)');
+      // Колёса: покрышка, обод и бегущие по протектору метки — видно вращение.
+      for (const wy of [-wb, wb]) {
+        seg(pt(0, wy - wheelR, wheelR * 0.4), pt(0, wy + wheelR, wheelR * 0.4), tw * 2.4, '#111214');
+        seg(pt(0, wy - wheelR * 0.86, wheelR * 0.5), pt(0, wy + wheelR * 0.86, wheelR * 0.5), tw * (rims === 'alu' ? 0.8 : 1.3), rimCol);
+        for (let i = 0; i < 6; i++) {
+          const th = odo / wheelR + i * Math.PI / 3;
+          if (Math.sin(th) < -0.1) continue;
+          const y = wy + wheelR * Math.cos(th), h = wheelR + wheelR * Math.sin(th);
+          seg(pt(-tw * 1.1, y, h), pt(tw * 1.1, y, h), 0.022, 'rgba(255,255,255,0.32)');
+        }
+      }
+      // Задние перья, рама, вилка.
+      const frame = bike.color, frameD = window.Render.shade(bike.color, 0.65);
+      seg(pt(-0.06, wb, 0.35), pt(-0.03, 0.02, 0.3), 0.035, frameD);
+      seg(pt(0.06, wb, 0.35), pt(0.03, 0.02, 0.3), 0.035, frameD);
+      seg(pt(-0.05, wb, 0.37), pt(0, 0.12, 0.64), 0.03, frame);
+      seg(pt(0.05, wb, 0.37), pt(0, 0.12, 0.64), 0.03, frame);
+      seg(pt(0, 0.02, 0.3), pt(0, -wb + 0.12, 0.62), t === 'aero' || t === 'tt' || t === 'enduro' ? 0.075 : 0.06, frameD);
+      seg(pt(0, 0.14, 0.66), pt(0, -wb + 0.1, 0.68), mtbLike ? 0.06 : 0.05, frame);
+      seg(pt(0, 0.14, 0.66), pt(0, -wb + 0.1, 0.68), 0.015, 'rgba(255,255,255,0.35)');
+      const forkCol = mtbLike && t !== 'fat' && t !== 'bmx' ? '#1a1a1d' : frame;
+      seg(pt(-0.05, -wb, 0.37), pt(0, -wb + 0.08, 0.62), 0.03, forkCol);
+      seg(pt(0.05, -wb, 0.37), pt(0, -wb + 0.08, 0.62), 0.03, forkCol);
+      // Звезда, шатуны и педали вращаются с каденсом.
+      const ph = r.pedal || 0;
+      blob(pt(0.09, 0, 0.3), 0.025, 0.11, '#4d5157');
+      const pedal = (sgn) => [0.14 * sgn, -Math.cos(ph) * 0.17 * sgn, 0.3 + Math.sin(ph) * 0.17 * sgn];
+      const pL = pedal(-1), pR = pedal(1);
+      seg(pt(-0.1, 0, 0.3), pt(pL[0], pL[1], pL[2]), 0.028, '#2a2b2f');
+      seg(pt(0.1, 0, 0.3), pt(pR[0], pR[1], pR[2]), 0.028, '#2a2b2f');
+      seg(pt(pL[0] - 0.05, pL[1], pL[2]), pt(pL[0] + 0.03, pL[1], pL[2]), 0.04, '#111');
+      seg(pt(pR[0] - 0.03, pR[1], pR[2]), pt(pR[0] + 0.05, pR[1], pR[2]), 0.04, '#111');
+      // Седло и руль.
+      const sadH = 0.96;
+      poly([pt(-0.07, 0.3, sadH), pt(0.07, 0.3, sadH), pt(0.025, 0.06, sadH), pt(-0.025, 0.06, sadH)], '#151517');
+      const barY = -wb + 0.06, barH = t === 'bmx' ? 1.05 : t === 'folding' ? 1.0 : mtbLike ? 0.92 : 0.88;
+      seg(pt(0, -wb + 0.12, 0.68), pt(0, barY, barH), 0.04, '#1b1c1f');
+      let hands;
+      if (t === 'tt') {
+        seg(pt(-0.2, barY, barH), pt(0.2, barY, barH), 0.032, '#1b1c1f');
+        seg(pt(-0.06, barY + 0.15, barH + 0.05), pt(-0.05, barY - 0.2, barH + 0.06), 0.03, '#1b1c1f');
+        seg(pt(0.06, barY + 0.15, barH + 0.05), pt(0.05, barY - 0.2, barH + 0.06), 0.03, '#1b1c1f');
+        hands = [[-0.05, barY - 0.15, barH + 0.07], [0.05, barY - 0.15, barH + 0.07]];
+      } else if (mtbLike || t === 'hybrid' || t === 'folding') {
+        const bw = t === 'bmx' ? 0.34 : t === 'folding' ? 0.28 : t === 'hybrid' ? 0.31 : 0.39;
+        seg(pt(-bw, barY + 0.03, barH), pt(bw, barY + 0.03, barH), 0.032, '#1b1c1f');
+        seg(pt(-bw, barY + 0.03, barH), pt(-bw + 0.12, barY + 0.03, barH), 0.045, '#0d0d0f');
+        seg(pt(bw - 0.12, barY + 0.03, barH), pt(bw, barY + 0.03, barH), 0.045, '#0d0d0f');
+        if (t === 'bmx') seg(pt(-0.12, barY + 0.06, barH - 0.12), pt(0.12, barY + 0.06, barH - 0.12), 0.02, '#c9ccd1');
+        hands = [[-bw + 0.06, barY + 0.03, barH + 0.02], [bw - 0.06, barY + 0.03, barH + 0.02]];
+      } else {
+        seg(pt(-0.2, barY + 0.04, barH), pt(0.2, barY + 0.04, barH), 0.032, '#151515');
+        seg(pt(-0.2, barY + 0.04, barH), pt(-0.21, barY - 0.1, barH - 0.02), 0.032, '#151515');
+        seg(pt(0.2, barY + 0.04, barH), pt(0.21, barY - 0.1, barH - 0.02), 0.032, '#151515');
+        blob(pt(-0.21, barY - 0.08, barH + 0.02), 0.025, 0.05, '#2b2c30');
+        blob(pt(0.21, barY - 0.08, barH + 0.02), 0.025, 0.05, '#2b2c30');
+        hands = [[-0.21, barY - 0.07, barH + 0.04], [0.21, barY - 0.07, barH + 0.04]];
+      }
+      return { pL, pR, sadH, hands, wb };
+    }
+
+    // Велогонщик: педалирование с кинематикой ног, крен в поворотах, «танцовщица» при спурте.
+    drawCyclist(r) {
+      const S = this.spriteFrame(r, 1.08);
+      if (!S) return null;
+      const bike = D.bikeById(r.bikeId);
+      const t = bike.type;
+      const ph = r.pedal || 0;
+      const standing = !!r.sprinting || (r.climbing && r.v < 9);
+      const lean = Math.max(-1, Math.min(1, r.lean || 0));
+      // Велосипед раскачивается под гонщиком при работе стоя, весь корпус кренится в повороте.
+      const sway = standing ? Math.sin(ph) * 0.13 : 0;
+      const bikeTilt = lean * 0.32 + sway;
+      const g = this.drawBikeSprite(S, r, bike, bikeTilt, 0);
+      const riderTilt = lean * 0.3 - sway * 0.35;
+      const pt = S.make(riderTilt, 0);
+      const bikePt = S.make(bikeTilt, 0);
+      const { seg, blob, poly } = S;
+      const tuck = t === 'tt' || t === 'aero' ? 0.14 : t === 'road' ? 0.06 : 0;
+      const bob = Math.abs(Math.sin(ph)) * (standing ? 0.05 : 0.012);
+      const hipH = standing ? 1.13 + bob : 0.98 - tuck * 0.3 + bob;
+      const hipY = standing ? -0.02 : 0.2;
+      const skin = '#e2b391', shorts = '#17181b';
+      // Ноги: дальняя (по фазе ниже) первой, чтобы правильно перекрывалась.
+      const leg = (sgn) => {
+        const p = sgn < 0 ? g.pL : g.pR;
+        const hip = [0.09 * sgn, hipY, hipH];
+        const [ky, kh] = Renderer.ik(hip[1], hip[2], p[1], p[2], 0.46, 0.5);
+        const kx = 0.12 * sgn + (standing ? sway * -0.3 : 0);
+        const H = pt(hip[0], hip[1], hip[2]), K = pt(kx, ky, kh);
+        const Fo = bikePt(p[0], p[1], p[2] + 0.03);
+        seg(H, K, 0.14, shorts);
+        seg(K, Fo, 0.1, skin);
+        seg(pt(kx * 0.6 + p[0] * 0.4, ky * 0.25 + p[1] * 0.75, kh * 0.25 + p[2] * 0.75), Fo, 0.085, '#f4f4f4');
+        blob(Fo, 0.05, 0.12, '#111214');
+        blob(K, 0.06, 0.06, shorts);
+      };
+      if (Math.sin(ph) > 0) { leg(1); leg(-1); } else { leg(-1); leg(1); }
+      // Корпус.
+      const shH = (standing ? 1.38 : 1.2 - tuck) + bob, shY = standing ? -0.33 : -0.24 - tuck * 0.6;
+      const twist = standing ? Math.sin(ph) * 0.05 : Math.sin(ph) * 0.012;
+      const jersey = r.jersey, jerseyD = window.Render.shade(r.jersey, 0.7);
+      poly([pt(-0.15, hipY + 0.04, hipH + 0.02), pt(0.15, hipY + 0.04, hipH + 0.02), pt(0.2 + twist, shY, shH), pt(-0.2 + twist, shY, shH)], jersey);
+      poly([pt(0.06, hipY + 0.02, hipH + 0.04), pt(0.15, hipY + 0.02, hipH + 0.03), pt(0.2 + twist, shY + 0.02, shH), pt(0.11 + twist, shY + 0.02, shH + 0.01)], jerseyD);
+      seg(pt(0, hipY - 0.04, hipH + 0.08), pt(twist, shY + 0.05, shH + 0.02), 0.04, 'rgba(255,255,255,0.55)');
+      poly([pt(-0.15, hipY + 0.04, hipH + 0.02), pt(0.15, hipY + 0.04, hipH + 0.02), pt(0.155, hipY - 0.06, hipH + 0.06), pt(-0.155, hipY - 0.06, hipH + 0.06)], jerseyD);
+      // Руки к рулю (руль качается вместе с велосипедом).
+      g.hands.forEach((h, i) => {
+        const sgn = i ? 1 : -1;
+        const sh = pt(0.19 * sgn + twist, shY + 0.03, shH - 0.02);
+        const hand = bikePt(h[0], h[1], h[2]);
+        const el = pt(0.25 * sgn, (shY + h[1]) / 2 + 0.04, (shH + h[2]) / 2 - 0.06);
+        seg(sh, el, 0.085, jersey);
+        seg(el, hand, 0.065, skin);
+        blob(hand, 0.04, 0.05, '#111214');
+      });
+      // Голова и шлем (слегка покачивается).
+      const hx = twist * 1.2;
+      blob(pt(hx, shY - 0.06, shH + 0.04), 0.05, 0.05, skin);
+      const aero = t === 'tt';
+      blob(aero ? pt(hx, shY - 0.05, shH + 0.1) : pt(hx, shY - 0.13, shH + 0.08), 0.12, aero ? 0.24 : 0.16, r.helmet);
+      S.ctx.strokeStyle = 'rgba(0,0,0,0.3)'; S.ctx.lineWidth = Math.max(0.5, 0.018 * S.k);
+      for (const vx of [-0.05, 0, 0.05]) {
+        const a = pt(hx + vx, shY - 0.22, shH + 0.1), b = pt(hx + vx, shY - 0.03, shH + 0.1);
+        S.ctx.beginPath(); S.ctx.moveTo(a[0], a[1]); S.ctx.lineTo(b[0], b[1]); S.ctx.stroke();
+      }
+      blob(pt(hx, shY - 0.26, shH + 0.06), 0.09, 0.03, '#0d0f12');
+      return S;
+    }
+
+    // Бегун: фаза опоры и маха, подъём пятки, вертикальные колебания, работа рук.
+    // opts.idle — стоит (в транзитной зоне), opts.pushBike — катит велосипед правой рукой.
+    drawRunnerSprite(r, opts) {
+      const o = opts || {};
+      const S = this.spriteFrame(r, 1.22);
+      if (!S) return null;
+      const { seg, blob, poly } = S;
       const ph = r.phase || 0;
       const skin = '#e2b391';
       const jersey = r.jersey, dark = window.Render.shade(r.jersey, 0.6);
-      blob(pt(0.25, 0.1, 0), 0.3, 0.55, 'rgba(0,0,0,0.22)');
-      const leg = (sgn) => {
+      if (o.pushBike) this.drawBikeSprite(S, Object.assign({}, r, { pedal: 0.6 }), D.bikeById(r.bikeId), 0, 0.62);
+      const bob = o.idle ? 0 : 0.045 * Math.cos(2 * ph);
+      const leanF = o.idle ? 0 : 0.1;
+      const pt = S.pt;
+      blob(pt(0.22, 0.1, 0), 0.26, 0.5, 'rgba(0,0,0,0.24)');
+      const legPose = (sgn) => {
         const a = ph + (sgn > 0 ? 0 : Math.PI);
-        const fy = -Math.sin(a) * 0.42, fh = Math.max(0, Math.cos(a)) * 0.28 + 0.05;
-        const hip = pt(sgn * 0.1, 0.05, 0.92);
-        const knee = pt(sgn * 0.11, fy * 0.5 - 0.12, 0.5 + fh * 0.6);
-        const foot = pt(sgn * 0.11, fy, fh);
-        seg(hip, knee, 0.12, skin);
-        seg(knee, foot, 0.09, skin);
-        blob(foot, 0.06, 0.12, sgn > 0 ? '#39ff88' : '#ff4fd8');
+        if (o.idle) return [0.11 * sgn, 0.02, 0.04];
+        const fy = -Math.sin(a) * 0.46;
+        const fh = 0.04 + Math.max(0, Math.cos(a)) * 0.38; // мах: пятка к ягодице
+        return [0.1 * sgn, fy + 0.05, fh];
       };
-      // Дальняя нога первой (та, что сзади по фазе).
+      const leg = (sgn) => {
+        const [fx, fy, fh] = legPose(sgn);
+        const hip = [0.1 * sgn, 0.04, 0.95 + bob];
+        const [ky, kh] = Renderer.ik(hip[1], hip[2], fy, fh, 0.47, 0.5);
+        const H = pt(hip[0], hip[1], hip[2]), K = pt(0.11 * sgn, ky, kh), Fo = pt(fx, fy, fh);
+        seg(H, K, 0.13, skin);
+        seg(K, Fo, 0.095, skin);
+        seg(pt(fx, fy + 0.02, fh + 0.12), Fo, 0.09, '#f2f2f2');
+        blob(pt(fx, fy - 0.05, fh), 0.06, 0.13, sgn > 0 ? '#39ff88' : '#ff4fd8');
+      };
+      // Дальняя (опорная, сзади) нога — первой.
       if (Math.sin(ph) > 0) { leg(1); leg(-1); } else { leg(-1); leg(1); }
-      blob(pt(0, 0.04, 0.95), 0.17, 0.13, '#15161a');
-      poly([pt(-0.16, 0.06, 0.95), pt(0.16, 0.06, 0.95), pt(0.19, -0.05, 1.42), pt(-0.19, -0.05, 1.42)], jersey);
-      poly([pt(-0.09, 0.0, 1.07), pt(0.09, 0.0, 1.07), pt(0.09, -0.02, 1.25), pt(-0.09, -0.02, 1.25)], '#ffffff');
-      seg(pt(-0.14, 0.02, 1.12), pt(0.14, 0.02, 1.12), 0.015, dark);
+      const hipH = 0.95 + bob, shH = 1.42 + bob;
+      blob(pt(0, 0.04, hipH), 0.17, 0.13, '#15161a');
+      poly([pt(-0.16, 0.06, hipH), pt(0.16, 0.06, hipH), pt(0.19, 0.06 - leanF - 0.05, shH), pt(-0.19, 0.06 - leanF - 0.05, shH)], jersey);
+      poly([pt(-0.09, 0.03, hipH + 0.12), pt(0.09, 0.03, hipH + 0.12), pt(0.09, 0.0 - leanF * 0.5, hipH + 0.3), pt(-0.09, 0.0 - leanF * 0.5, hipH + 0.3)], '#ffffff');
+      seg(pt(-0.14, 0.03, hipH + 0.17), pt(0.14, 0.03, hipH + 0.17), 0.015, dark);
+      const shY = 0.01 - leanF - 0.05;
       for (const sgn of [-1, 1]) {
-        const a = ph + (sgn > 0 ? Math.PI : 0);
-        const sh = pt(sgn * 0.2, -0.05, 1.38);
-        const el = pt(sgn * 0.24, -Math.sin(a) * 0.18, 1.12);
-        const hand = pt(sgn * 0.2, -Math.sin(a) * 0.3 - 0.12, 1.15);
-        seg(sh, el, 0.075, jersey);
-        seg(el, hand, 0.06, skin);
+        const a = ph + (sgn > 0 ? Math.PI : 0); // руки в противофазе ногам
+        const sh = pt(0.2 * sgn, shY, shH - 0.04);
+        let el, hand;
+        if (o.idle) {
+          // Надевает шлем / снимает гидрокостюм.
+          const w = Math.sin(r.phaseIdle || 0) * 0.08;
+          el = pt(0.28 * sgn, shY + 0.02, shH + 0.05 + w);
+          hand = pt(0.12 * sgn, shY - 0.05, shH + 0.32 + w);
+        } else if (o.pushBike && sgn > 0) {
+          el = pt(0.36, shY + 0.1, shH - 0.25);
+          hand = pt(0.55, 0.1, 1.0);
+        } else {
+          const sw = Math.sin(a);
+          el = pt(0.25 * sgn, shY + 0.18 + sw * 0.16, shH - 0.28);
+          hand = pt(0.2 * sgn, shY - 0.05 + sw * 0.3, shH - 0.22 + Math.max(0, -sw) * 0.12);
+        }
+        seg(sh, el, 0.08, jersey);
+        seg(el, hand, 0.062, skin);
+        blob(hand, 0.04, 0.045, skin);
       }
-      blob(pt(0, -0.08, 1.55), 0.07, 0.07, skin);
-      blob(pt(0, -0.1, 1.68), 0.11, 0.13, skin);
-      blob(pt(0, -0.12, 1.75), 0.12, 0.12, r.helmet);
-      blob(pt(0, -0.24, 1.72), 0.12, 0.04, '#111');
+      const hy = shY - 0.05;
+      blob(pt(0, hy, shH + 0.12), 0.07, 0.07, skin);
+      blob(pt(0, hy - 0.02, shH + 0.26), 0.11, 0.13, skin);
+      blob(pt(0, hy - 0.03, shH + 0.32), 0.12, 0.12, r.helmet);
+      blob(pt(0, hy - 0.15, shH + 0.3), 0.12, 0.04, '#111');
+      return S;
+    }
+
+    // Пловец кролем: вращение корпуса, высокий локоть на проносе, гребок под водой,
+    // вдох на каждый второй цикл, шестиударная работа ног с пеной.
+    drawSwimmerSprite(r) {
+      const S = this.spriteFrame(r, 1.35);
+      if (!S) return null;
+      const { seg, blob, path, pt } = S;
+      const ph = r.phase || 0;
+      const skin = '#e2b391';
+      const roll = Math.sin(ph) * 0.12;
+      // Расходящиеся «усы» волны от головы и пенный след.
+      S.path([pt(-0.12, -0.62, 0), pt(-0.34, -0.2, 0), pt(-0.5, 0.35, 0)], 0.035, 'rgba(255,255,255,0.18)');
+      S.path([pt(0.12, -0.62, 0), pt(0.34, -0.2, 0), pt(0.5, 0.35, 0)], 0.035, 'rgba(255,255,255,0.18)');
+      blob(pt(0, 0.3, -0.06), 0.25 - Math.abs(roll) * 0.4, 0.95, 'rgba(6,30,58,0.6)');
+      blob(pt(roll * 0.5, 0.15, -0.02), 0.17, 0.5, window.Render.shade(r.jersey, 0.6));
+      // Ноги: 3 удара на каждый гребок.
+      for (const sgn of [-1, 1]) {
+        const kick = Math.sin(ph * 3 + (sgn > 0 ? 0 : Math.PI));
+        seg(pt(sgn * 0.09, 0.55, -0.04), pt(sgn * 0.1, 1.05, -0.02 + kick * 0.05), 0.08, 'rgba(226,179,145,0.55)');
+        blob(pt(sgn * 0.1, 1.15, 0.02), 0.07 + Math.max(0, kick) * 0.06, 0.1 + Math.max(0, kick) * 0.08, 'rgba(255,255,255,0.85)');
+      }
+      // Руки: a ∈ [0, π) — пронос над водой, [π, 2π) — гребок под водой.
+      for (const sgn of [-1, 1]) {
+        const a = ((ph + (sgn > 0 ? 0 : Math.PI)) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+        const sh = pt(sgn * 0.2 + roll * sgn * 0.3, -0.22, 0.05 + roll * sgn * 0.6);
+        if (a < Math.PI) {
+          const t = a / Math.PI; // 0 — у бедра, 1 — вход в воду впереди
+          const hand = pt(sgn * (0.26 - 0.06 * t), 0.15 - 1.05 * t, 0.06 + Math.sin(a) * 0.3);
+          const el = pt(sgn * 0.36, -0.15 - 0.45 * t, 0.12 + Math.sin(a) * 0.48);
+          path([sh, el, hand], 0.085, skin);
+          blob(hand, 0.05, 0.065, skin);
+          if (t > 0.85) blob(pt(sgn * 0.22, -0.9, 0.02), 0.12 * (t - 0.8) * 5, 0.08 * (t - 0.8) * 5, 'rgba(255,255,255,0.9)');
+        } else {
+          const t = (a - Math.PI) / Math.PI; // 0 — захват впереди, 1 — выход у бедра
+          const hand = pt(sgn * (0.16 + 0.06 * Math.sin(t * Math.PI)), -0.9 + 1.05 * t, -0.18);
+          const el = pt(sgn * 0.3, -0.45 + 0.4 * t, -0.08);
+          path([sh, el, hand], 0.08, 'rgba(226,179,145,0.4)');
+          if (t > 0.9) blob(pt(sgn * 0.24, 0.15, 0.02), 0.08, 0.06, 'rgba(255,255,255,0.75)');
+        }
+      }
+      // Голова: на каждый второй цикл — поворот на вдох.
+      const cyc = Math.floor(ph / (2 * Math.PI));
+      const a0 = ((ph % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      const breathe = cyc % 2 === 0 && a0 > 0.3 && a0 < 1.5 ? Math.sin((a0 - 0.3) / 1.2 * Math.PI) : 0;
+      const hx = breathe * 0.09 + roll * 0.2;
+      blob(pt(hx, -0.5, 0.1), 0.12, 0.16, r.helmet);
+      blob(pt(hx - 0.01, -0.6, 0.12), 0.1, 0.03, '#111');
+      if (breathe > 0.4) blob(pt(hx + 0.1, -0.5, 0.08), 0.04, 0.05, skin);
+      blob(pt(hx * 0.5, -0.68, 0.01), 0.2, 0.07, 'rgba(255,255,255,0.65)');
+      return S;
     }
 
     drawLabel(r, base) {
       const ctx = this.ctx;
       // Подпись над соперниками / маркер игрока.
-      const label = this.project(r.x, r.y, r.z + 2.4);
+      const label = this.project(r.x, r.y, r.z + 2.5);
       if (label && base[2] > 14) {
         ctx.font = `600 ${Math.round(11 * this.dpr)}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
@@ -998,149 +1287,16 @@
       }
     }
 
-    drawRider(r, race) {
-      const ctx = this.ctx;
-      const base = this.project(r.x, r.y, r.z);
-      if (!base) return;
-      const fx = Math.cos(r.heading), fy = Math.sin(r.heading);
-      const pf = this.project(r.x + fx, r.y + fy, r.z);
-      const pr = this.project(r.x + fy, r.y - fx, r.z);
-      const pu = this.project(r.x, r.y, r.z + 1);
-      if (!pf || !pr || !pu) return;
-      const F = [pf[0] - base[0], pf[1] - base[1]], R = [pr[0] - base[0], pr[1] - base[1]], U = [pu[0] - base[0], pu[1] - base[1]];
-      const bike = D.bikeById(r.bikeId);
-      const t = bike.type;
-      // Точка в локальных координатах гонщика (x — вправо, y — назад, h — высота, метры) → экран.
-      const pt = (x, y, h) => [base[0] + R[0] * x - F[0] * y + U[0] * h, base[1] + R[1] * x - F[1] * y + U[1] * h];
-      const k = Math.hypot(R[0], R[1]); // пикселей на метр
-      const seg = (a, b, w, col) => {
-        ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, w * k);
-        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-      };
-      const blob = (c, rx, ry, col) => {
-        ctx.fillStyle = col;
-        ctx.beginPath(); ctx.ellipse(c[0], c[1], Math.max(0.5, rx * k), Math.max(0.5, ry * k), Math.atan2(-F[0], F[1]), 0, Math.PI * 2); ctx.fill();
-      };
-      const poly = (pts, col) => {
-        ctx.fillStyle = col; ctx.beginPath();
-        pts.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])));
-        ctx.closePath(); ctx.fill();
-      };
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      if (r.mode === 'swim' || r.mode === 'run') {
-        if (r.mode === 'swim') this.drawSwimmer(r, pt, k, seg, blob, poly);
-        else this.drawRunner(r, pt, k, seg, blob, poly);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        this.drawLabel(r, base);
-        return;
-      }
-      const mtbLike = ['mtb', 'enduro', 'xc', 'fat', 'bmx'].includes(t);
-      const tw = t === 'fat' ? 0.11 : mtbLike ? 0.06 : t === 'gravel' ? 0.042 : 0.028;
-      const wheelD = t === 'folding' ? 0.42 : t === 'bmx' ? 0.52 : 0.7;
-      const wb = t === 'folding' ? 0.52 : t === 'bmx' ? 0.48 : t === 'enduro' ? 0.62 : 0.5;
-      const lean = (r.lean || 0) * 0.16;
-      const tuck = t === 'tt' || t === 'aero' ? 0.14 : t === 'road' ? 0.06 : 0;
-      const ph = r.pedal || 0;
-      const rims = (bike.look && bike.look.rims) || 'alu';
-      const rimCol = rims === 'alu' ? '#b9bec5' : '#33353a';
-
-      // Мягкая тень.
-      blob(pt(0.28, 0.25, 0), 0.38, 1.05, 'rgba(0,0,0,0.22)');
-      // Колёса: покрышка + обод сверху.
-      for (const wy of [-wb, wb]) {
-        const a = pt(0, wy - wheelD / 2, wheelD / 2 * 0.15), b = pt(0, wy + wheelD / 2, wheelD / 2 * 0.15);
-        seg(a, b, tw * 2.2, '#121214');
-        seg(pt(0, wy - wheelD * 0.44, 0.06), pt(0, wy + wheelD * 0.44, 0.06), tw * (rims === 'alu' ? 0.7 : 1.1), rimCol);
-      }
-      // Задние перья, рама, вилка.
-      const frame = bike.color, frameD = window.Render.shade(bike.color, 0.65);
-      seg(pt(-0.06, wb, 0.33), pt(-0.03, 0.02, 0.3), 0.035, frameD);
-      seg(pt(0.06, wb, 0.33), pt(0.03, 0.02, 0.3), 0.035, frameD);
-      seg(pt(-0.05, wb, 0.36), pt(0, 0.12, 0.62), 0.03, frame);
-      seg(pt(0.05, wb, 0.36), pt(0, 0.12, 0.62), 0.03, frame);
-      seg(pt(0, 0.02, 0.3), pt(0, -wb + 0.12, 0.6), t === 'aero' || t === 'tt' || t === 'enduro' ? 0.075 : 0.06, frameD);
-      seg(pt(0, 0.14, 0.64), pt(0, -wb + 0.1, 0.66), mtbLike ? 0.06 : 0.05, frame);
-      seg(pt(0, 0.14, 0.64), pt(0, -wb + 0.1, 0.66), 0.015, 'rgba(255,255,255,0.35)');
-      seg(pt(-0.05, -wb, 0.36), pt(0, -wb + 0.08, 0.6), 0.03, mtbLike && t !== 'fat' && t !== 'bmx' ? '#1a1a1d' : frame);
-      seg(pt(0.05, -wb, 0.36), pt(0, -wb + 0.08, 0.6), 0.03, mtbLike && t !== 'fat' && t !== 'bmx' ? '#1a1a1d' : frame);
-      // Звезда, шатуны и педали (вращаются).
-      blob(pt(0.08, 0, 0.3), 0.02, 0.1, '#55595f');
-      const pedalY = (sgn) => Math.cos(ph) * 0.17 * sgn, pedalH = (sgn) => 0.3 + Math.sin(ph) * 0.17 * sgn;
-      const footL = pt(-0.13, pedalY(-1), pedalH(-1)), footR = pt(0.13, pedalY(1), pedalH(1));
-      seg(pt(-0.1, 0, 0.3), footL, 0.025, '#2a2b2f');
-      seg(pt(0.1, 0, 0.3), footR, 0.025, '#2a2b2f');
-
-      // Ноги: бедро → колено → стопа (дальняя нога рисуется первой).
-      const hipH = 0.98 - tuck * 0.3;
-      const leg = (sgn) => {
-        const foot = sgn < 0 ? footL : footR;
-        const fy = pedalY(sgn), fh = pedalH(sgn);
-        const hip = pt(0.1 * sgn + lean * 0.5, 0.2, hipH);
-        const knee = pt(0.15 * sgn + lean * 0.4, -0.22 + fy * 0.4, (hipH + fh) / 2 + 0.12);
-        seg(hip, knee, 0.13, '#17181b');
-        seg(knee, foot, 0.095, '#e2b391');
-        seg(pt(0.15 * sgn, -0.22 + fy * 0.6, fh + 0.15), foot, 0.08, '#f4f4f4');
-        blob(foot, 0.055, 0.13, '#111214');
-      };
-      leg(-1); leg(1);
-
-      // Седло и руль.
-      poly([pt(-0.07 + lean * 0.3, 0.32, hipH - 0.02), pt(0.07 + lean * 0.3, 0.32, hipH - 0.02), pt(0.025, 0.08, hipH - 0.02), pt(-0.025, 0.08, hipH - 0.02)], '#151517');
-      const barY = -wb + 0.06, barH = t === 'bmx' ? 1.05 : t === 'folding' ? 1.0 : mtbLike ? 0.92 : 0.86;
-      seg(pt(0, -wb + 0.12, 0.66), pt(0, barY, barH), 0.04, '#1b1c1f');
-      let handL, handR;
-      if (t === 'tt') {
-        seg(pt(-0.2, barY, barH), pt(0.2, barY, barH), 0.032, '#1b1c1f');
-        seg(pt(-0.06, barY + 0.15, barH + 0.05), pt(-0.05, barY - 0.2, barH + 0.06), 0.03, '#1b1c1f');
-        seg(pt(0.06, barY + 0.15, barH + 0.05), pt(0.05, barY - 0.2, barH + 0.06), 0.03, '#1b1c1f');
-        handL = pt(-0.05, barY - 0.15, barH + 0.07); handR = pt(0.05, barY - 0.15, barH + 0.07);
-      } else if (mtbLike || t === 'hybrid' || t === 'folding') {
-        const bw = t === 'bmx' ? 0.34 : t === 'folding' ? 0.28 : t === 'hybrid' ? 0.31 : 0.39;
-        seg(pt(-bw, barY + 0.03, barH), pt(bw, barY + 0.03, barH), 0.032, '#1b1c1f');
-        seg(pt(-bw, barY + 0.03, barH), pt(-bw + 0.12, barY + 0.03, barH), 0.045, '#0d0d0f');
-        seg(pt(bw - 0.12, barY + 0.03, barH), pt(bw, barY + 0.03, barH), 0.045, '#0d0d0f');
-        if (t === 'bmx') seg(pt(-0.12, barY + 0.06, barH - 0.12), pt(0.12, barY + 0.06, barH - 0.12), 0.02, '#c9ccd1');
-        handL = pt(-bw + 0.06, barY + 0.03, barH + 0.02); handR = pt(bw - 0.06, barY + 0.03, barH + 0.02);
-      } else {
-        // Барашек: верхний хват и «рожки» с ручками.
-        seg(pt(-0.2, barY + 0.04, barH), pt(0.2, barY + 0.04, barH), 0.032, '#151515');
-        seg(pt(-0.2, barY + 0.04, barH), pt(-0.21, barY - 0.1, barH - 0.02), 0.032, '#151515');
-        seg(pt(0.2, barY + 0.04, barH), pt(0.21, barY - 0.1, barH - 0.02), 0.032, '#151515');
-        blob(pt(-0.21, barY - 0.08, barH + 0.02), 0.025, 0.05, '#2b2c30');
-        blob(pt(0.21, barY - 0.08, barH + 0.02), 0.025, 0.05, '#2b2c30');
-        handL = pt(-0.21, barY - 0.07, barH + 0.04); handR = pt(0.21, barY - 0.07, barH + 0.04);
-      }
-
-      // Корпус с наклоном вперёд.
-      const shH = 1.2 - tuck, shY = -0.24 - tuck * 0.6;
-      const jersey = r.jersey, jerseyD = window.Render.shade(r.jersey, 0.7);
-      poly([pt(-0.15 + lean, 0.24, hipH + 0.02), pt(0.15 + lean, 0.24, hipH + 0.02), pt(0.2 + lean * 1.4, shY, shH), pt(-0.2 + lean * 1.4, shY, shH)], jersey);
-      poly([pt(0.06 + lean, 0.22, hipH + 0.04), pt(0.15 + lean, 0.22, hipH + 0.03), pt(0.2 + lean * 1.4, shY + 0.02, shH), pt(0.11 + lean * 1.4, shY + 0.02, shH + 0.01)], jerseyD);
-      seg(pt(lean * 1.2, 0.16, hipH + 0.08), pt(lean * 1.4, shY + 0.05, shH + 0.02), 0.04, 'rgba(255,255,255,0.55)');
-      poly([pt(-0.15 + lean, 0.24, hipH + 0.02), pt(0.15 + lean, 0.24, hipH + 0.02), pt(0.155 + lean, 0.14, hipH + 0.06), pt(-0.155 + lean, 0.14, hipH + 0.06)], jerseyD);
-      // Руки: плечо → локоть → кисть.
-      const arm = (sgn, hand) => {
-        const sh = pt(0.19 * sgn + lean * 1.4, shY + 0.03, shH - 0.02);
-        const el = pt(0.24 * sgn + lean, shY - 0.2, shH - 0.12);
-        seg(sh, el, 0.085, jersey);
-        seg(el, hand, 0.065, '#e2b391');
-        blob(hand, 0.04, 0.05, '#111214');
-      };
-      arm(-1, handL); arm(1, handR);
-      // Голова и шлем.
-      const head = pt(lean * 1.5, shY - 0.13, shH + 0.08);
-      blob(pt(lean * 1.5, shY - 0.06, shH + 0.04), 0.05, 0.05, '#e2b391');
-      const aeroHelmet = t === 'tt';
-      blob(aeroHelmet ? pt(lean * 1.5, shY - 0.05, shH + 0.1) : head, 0.12, aeroHelmet ? 0.24 : 0.16, r.helmet);
-      ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = Math.max(0.5, 0.018 * k);
-      for (const vx of [-0.05, 0, 0.05]) {
-        const a = pt(lean * 1.5 + vx, shY - 0.22, shH + 0.1), b = pt(lean * 1.5 + vx, shY - 0.03, shH + 0.1);
-        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-      }
-      blob(pt(lean * 1.5, shY - 0.26, shH + 0.06), 0.09, 0.03, '#0d0f12');
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-      this.drawLabel(r, base);
+    drawRider(r) {
+      let S;
+      if (r.mode === 'swim') S = this.drawSwimmerSprite(r);
+      else if (r.mode === 'run') S = this.drawRunnerSprite(r, {});
+      else if (r.mode === 'idle') S = this.drawRunnerSprite(r, { idle: true });
+      else if (r.mode === 'push') S = this.drawRunnerSprite(r, { pushBike: true });
+      else S = this.drawCyclist(r);
+      if (!S) return;
+      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.drawLabel(r, S.base);
     }
   }
 

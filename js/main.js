@@ -222,12 +222,27 @@
     }).join(''));
   }
 
+  // ── Адаптивное качество: держим плавные 60 кадров на телефонах ──
+  const perf = { sum: 0, n: 0 };
+  function adaptQuality(frameMs) {
+    perf.sum += frameMs; perf.n++;
+    if (perf.n < 45) return;
+    const avg = perf.sum / perf.n;
+    perf.sum = 0; perf.n = 0;
+    let q = renderer.quality;
+    if (avg > 21 && q > 0.5) q = Math.max(0.5, q - 0.15);
+    else if (avg < 13 && q < 1) q = Math.min(1, q + 0.1);
+    if (q !== renderer.quality) { renderer.quality = q; renderer.resize(); }
+  }
+
   // ── Цикл ──────────────────────────────────────────────────
   function loop(t) {
     raf = requestAnimationFrame(loop);
     if (!race) return;
-    const dt = Math.min(0.05, (t - lastT) / 1000);
+    const frameMs = t - lastT;
+    const dt = Math.min(0.05, frameMs / 1000);
     lastT = t;
+    if (frameMs > 0 && frameMs < 200) adaptQuality(frameMs);
     if (!paused && race.state !== 'done') {
       // При ускорении времени делаем несколько шагов, чтобы физика оставалась точной.
       for (let k = 0; k < timeScale && race.state !== 'done'; k++) race.update(dt);

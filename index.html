@@ -92,7 +92,14 @@
   <script>
     // Офлайн-режим и установка на iPhone: сервис-воркер кэширует игру и фото.
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+      // Когда вышла новая версия игры, новый сервис-воркер берёт управление — перезагружаемся один раз,
+      // чтобы сразу увидеть обновление, а не старую копию из кэша.
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController && !reloaded && !window.VeloRush?.race) { reloaded = true; location.reload(); }
+      });
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').then((reg) => reg.update()).catch(() => {}));
     }
   </script>
 </body>

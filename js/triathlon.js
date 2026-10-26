@@ -36,7 +36,31 @@
   };
   // Расход гликогена в час (ровный темп) и поступление на пунктах питания.
   const BURN = { swim: 45, bike: 55, run: 70 };
-  const SCREEN_SECONDS = { swim: 38, bike: 50, run: 45, t: 3.5 };
+  const SCREEN_SECONDS = { swim: 38, bike: 50, run: 45, t: 7 };
+  // Визуальная скорость лидера этапа на экране (ед./с) — согласована с частотой гребков и шагов.
+  const VIS = { swim: 3.4, bike: 14, run: 6 };
+  const visLen = (kind) => VIS[kind] * SCREEN_SECONDS[kind];
+  const ZONE = 70; // длина транзитной зоны перед стартом этапа
+
+  // Поза в транзитной зоне: где участник (s) и что делает (бежит, стоит у стойки, катит велосипед, едет).
+  function transitionPose(prevKind, nextKind, f) {
+    const lerp = (a, b, t) => a + (b - a) * Math.max(0, Math.min(1, t));
+    if (nextKind === 'bike') {
+      if (f < 0.42) return { s: lerp(-ZONE, -40, f / 0.42), mode: 'run' };
+      if (f < 0.58) return { s: -40, mode: 'idle' };
+      if (f < 0.92) return { s: lerp(-40, -10, (f - 0.58) / 0.34), mode: 'push' };
+      return { s: lerp(-10, -4, (f - 0.92) / 0.08), mode: 'bike' };
+    }
+    if (prevKind === 'bike') {
+      if (f < 0.12) return { s: lerp(-ZONE, -62, f / 0.12), mode: 'bike' };
+      if (f < 0.45) return { s: lerp(-62, -40, (f - 0.12) / 0.33), mode: 'push' };
+      if (f < 0.6) return { s: -40, mode: 'idle' };
+      return { s: lerp(-40, 0, (f - 0.6) / 0.4), mode: 'run' };
+    }
+    if (f < 0.45) return { s: lerp(-ZONE, -40, f / 0.45), mode: 'run' };
+    if (f < 0.6) return { s: -40, mode: 'idle' };
+    return { s: lerp(-40, 0, (f - 0.6) / 0.4), mode: 'run' };
+  }
   const BOT_TRI = [0.3, 2, 4, 6.5, 9];
 
   // ── Профиль триатлета ────────────────────────────────────────
@@ -301,54 +325,99 @@
     // ── Представление для рендера: участники текущего этапа игрока на своей трассе ──
     updateView() {
       const p = this.player;
+      const dt = this.dt || 0.016;
       const legIdx = Math.min(p.leg, this.legs.length - 1);
       let kind = this.legs[legIdx].kind;
-      // Во время транзита показываем начало следующего этапа (зону смены).
+      // Во время транзита показываем зону смены перед стартом следующего этапа.
       let showIdx = legIdx;
       if (this.isTransition(kind)) { showIdx = Math.min(legIdx + 1, this.legs.length - 1); kind = this.legs[showIdx].kind; }
       const course = this.courses[kind] || this.courses.run;
-      if (showIdx !== this.viewLeg) { this.viewLeg = showIdx; this.firstFrame = true; }
+      if (showIdx !== this.viewLeg) {
+        this.viewLeg = showIdx;
+        this.firstFrame = true;
+        this.particles = [];
+        this.athletes.forEach((a) => { a.lastS = undefined; a.visV = VIS[kind]; });
+        this.buildDecor(course, showIdx);
+      }
       this.track = course;
+      this.camZoom = kind === 'bike' ? 0.8 : 0.7;
+      const prev = this.legs[showIdx - 1];
+      const prevKind = this.legs[showIdx - 2] ? this.legs[showIdx - 2].kind : null;
       const riders = [];
+      const racing = this.state === 'racing' || this.state === 'finishing';
       this.athletes.forEach((a) => {
-        if (a.finished) return;
         let s, mode = kind;
-        const prev = this.legs[showIdx - 1];
-        if (a.leg === showIdx) {
-          s = (a.legDist / this.legs[showIdx].meters) * course.L;
+        if (a.finished && a.isPlayer) {
+          // Финишировал: стоит за линией и радуется.
+          s = visLen(this.legs[this.legs.length - 1].kind) + 6; mode = 'idle';
+        } else if (a.finished) return;
+        else if (a.leg === showIdx) {
+          s = (a.legDist / this.legs[showIdx].meters) * visLen(kind);
         } else if (a.leg === showIdx - 1 && prev && this.isTransition(prev.kind)) {
-          // В зоне смены: стоят у старта следующего этапа.
           const need = prev.kind === 't1' ? a.tri.t1 : a.tri.t2;
-          s = -6 - 4 * (1 - a.legTime / need);
-          mode = 'run';
+          const pose = transitionPose(prevKind, kind, a.legTime / need);
+          s = pose.s; mode = pose.mode;
         } else return;
+        // Скорость на экране — для частоты гребков, шагов и педалирования.
+        if (a.lastS !== undefined && dt > 0) {
+          const v = Math.max(0, (s - a.lastS) / dt);
+          a.visV += (Math.min(v, 40) - a.visV) * Math.min(1, dt * 6);
+        }
+        a.lastS = s;
         const q = course.sampleAt(s);
-        const lat = a.lane * course.hw * 0.75;
+        const lat = a.lane * course.hw * (mode === 'swim' ? 0.7 : 0.6) + (mode === 'push' ? -0.3 : 0);
         a.mode = mode;
         a.x = q.x + q.nx * lat; a.y = q.y + q.ny * lat; a.z = q.z;
-        a.heading = q.ang; a.v = 9; a.lean = 0;
-        a.phase += this.dt * (mode === 'swim' ? 5 : mode === 'run' ? 9 : 7) * (this.state === 'racing' ? 1 : 0);
-        a.pedal = a.phase;
+        a.heading = q.ang; a.lean = 0; a.sprinting = false;
+        a.v = mode === 'bike' ? 14 : 8;
+        const v = racing ? a.visV : 0;
+        if (mode === 'swim') a.phase += v / VIS.swim * 5.5 * dt;
+        else if (mode === 'run' || mode === 'push') a.phase += v / VIS.run * 15 * dt;
+        else if (mode === 'idle') a.phaseIdle = (a.phaseIdle || 0) + dt * 5;
+        if (mode === 'bike') { a.pedal = (a.pedal || 0) + v / VIS.bike * 12 * dt; a.odo = (a.odo || 0) + v * dt; }
         riders.push(a);
       });
-      // Если игрок в транзите, камера смотрит на зону смены.
-      if (!riders.includes(p)) {
-        const q = course.sampleAt(-8);
-        Object.assign(p, { x: q.x, y: q.y, z: q.z, heading: q.ang, v: 0, mode: 'run' });
-        riders.push(p);
-      }
       this.riders = riders;
       this.focus = p;
-      // Брызги за пловцами.
-      if (kind === 'swim' && this.state === 'racing') {
+      // Пена и брызги остаются в воде — видно, как пловцы движутся относительно неё.
+      if (kind === 'swim' && racing) {
         riders.forEach((a) => {
-          if (this.particles.length < 300 && this.rnd() < this.dt * 10) {
-            this.particles.push({ x: a.x - Math.cos(a.heading) * 0.8, y: a.y - Math.sin(a.heading) * 0.8, z: 0.1, vx: (this.rnd() - 0.5), vy: (this.rnd() - 0.5), vz: 0.6, life: 0.6, max: 0.6, r: 0.07, c: '#e8f6ff', alpha: 0.6, grow: 0.15 });
+          if (a.mode !== 'swim' || this.particles.length > 650) return;
+          const n = Math.cos(a.heading), m = Math.sin(a.heading);
+          if (this.rnd() < dt * 22) {
+            const side = this.rnd() < 0.5 ? -1 : 1;
+            this.particles.push({ x: a.x - n * 1.35 + m * side * 0.12, y: a.y - m * 1.35 - n * side * 0.12, z: 0.02, vx: 0, vy: 0, vz: 0, life: 1.6, max: 1.6, r: 0.06, c: '#ffffff', alpha: 0.4, grow: 0.12, ground: true });
+          }
+          if (this.rnd() < dt * 6) {
+            const side = this.rnd() < 0.5 ? -1 : 1;
+            this.particles.push({ x: a.x + n * 1.0 + m * side * 0.25, y: a.y + m * 1.0 - n * side * 0.25, z: 0.05, vx: (this.rnd() - 0.5) * 0.6, vy: (this.rnd() - 0.5) * 0.6, vz: 0.9, life: 0.6, max: 0.6, r: 0.04, c: '#f2fbff', alpha: 0.7, grow: 0.05 });
           }
         });
       }
-      this.particles.forEach((q) => { q.life -= this.dt; q.x += q.vx * this.dt; q.y += q.vy * this.dt; q.z = Math.max(0, q.z + q.vz * this.dt); q.vz -= 1.5 * this.dt; q.r += q.grow * this.dt; });
+      this.particles.forEach((q) => { q.life -= dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z = Math.max(0, q.z + q.vz * dt); q.vz -= 2 * dt; q.r += q.grow * dt; });
       this.particles = this.particles.filter((q) => q.life > 0);
+    }
+
+    // Транзитная зона: ковровая дорожка, стойки с велосипедами, линия посадки.
+    buildDecor(course, showIdx) {
+      this.groundDecor = [];
+      this.extraObjects = [];
+      const prev = this.legs[showIdx - 1];
+      if (!prev || !this.isTransition(prev.kind)) return;
+      const hw = course.hw;
+      const at = (s0, lat) => { const q = course.sampleAt(s0); return [q.x + q.nx * lat, q.y + q.ny * lat, q.z + 0.01]; };
+      const carpet = prev.kind === 't1' ? '#1f5fa8' : '#b3261e';
+      for (let s0 = -ZONE - 2; s0 < -2; s0 += 4) {
+        this.groundDecor.push({ pts: [at(s0, -hw * 0.85), at(s0, hw * 0.85), at(s0 + 4.2, hw * 0.85), at(s0 + 4.2, -hw * 0.85)], fill: carpet });
+      }
+      this.groundDecor.push({ pts: [at(-10.3, -hw), at(-10.3, hw), at(-9.7, hw), at(-9.7, -hw)], fill: '#ffffff' });
+      const cols = ['#e63946', '#1d3557', '#2a9d8f', '#f4a261', '#6a4c93', '#ffb703', '#118ab2', '#ef476f', '#f1f1f1', '#222'];
+      for (const side of [-1, 1]) {
+        const a = at(-54, side * hw * 0.62), b = at(-28, side * hw * 0.62);
+        this.extraObjects.push({ type: 'rack', x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2, z: a[2], x1: a[0], y1: a[1], x2: b[0], y2: b[1], cols, seed: side > 0 ? 0.3 : 0.7 });
+      }
+      const sign = at(-ZONE + 4, hw + 1.5);
+      this.extraObjects.push({ type: 'kmsign', x: sign[0], y: sign[1], z: sign[2], ang: course.sampleAt(-ZONE + 4).ang, label: prev.kind.toUpperCase() });
     }
 
     progress(a) { return this.covered(a); }

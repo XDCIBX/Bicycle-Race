@@ -314,7 +314,10 @@
       r.lean += (clamp(omega * r.v / 14, -1, 1) - r.lean) * Math.min(1, dt * 6);
       r.x += Math.cos(r.heading) * r.v * dt;
       r.y += Math.sin(r.heading) * r.v * dt;
-      r.pedal += (inp.throttle && !locked ? r.v * 0.55 + 2 : 0) * dt;
+      r.odo = (r.odo || 0) + r.v * dt;
+      r.climbing = slopeDir > 0.05;
+      // Каденс ~90–110 об/мин на ходу, при спурте выше; накатом педали не крутятся.
+      r.pedal += (inp.throttle && !locked ? r.v * 0.42 + 2.5 + (r.sprinting ? 2 : 0) : 0) * dt;
 
       // Слишком далеко от трассы — мягко возвращаем.
       if (Math.abs(loc.lat) > T.hw + 28) {
