@@ -334,3 +334,6 @@ table.standings .num { text-align: right; }
   .rider-card svg { max-width: 150px; }
   .hud-event { font-size: 20px; }
 }
+
+.build { text-align: center; color: #4d5666; font-size: 11px; padding: 8px 0 18px; }
+@media (max-width: 860px) { .build { padding-bottom: calc(88px + var(--sab)); } }

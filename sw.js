@@ -1,6 +1,8 @@
 // Сервис-воркер: игра работает офлайн после первого запуска (в т.ч. на iPhone с экрана «Домой»).
-// Файлы игры — «кэш, затем обновление из сети»; фото с Wikimedia Commons — кэш навсегда.
-const VERSION = 'velorush-v4';
+// Файлы игры — «сначала сеть»: при интернете всегда свежая версия, без сети — копия из кэша.
+// Фото с Wikimedia Commons — кэш навсегда.
+const BUILD = 6;
+const VERSION = `velorush-v${BUILD}`;
 const PHOTOS = 'velorush-photos-v1';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
@@ -10,7 +12,10 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' — в обход HTTP-кэша браузера, чтобы не закэшировать устаревший файл.
+  e.waitUntil(caches.open(VERSION)
+    .then((c) => Promise.all(ASSETS.map((a) => fetch(new Request(a, { cache: 'reload' })).then((res) => (res.ok ? c.put(a, res) : null)).catch(() => null))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -34,9 +39,16 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   if (url.origin !== location.origin) return;
-  e.respondWith(caches.open(VERSION).then(async (c) => {
-    const hit = await c.match(req, { ignoreSearch: true });
-    const net = fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }).catch(() => hit);
-    return hit || net;
-  }));
+  e.respondWith((async () => {
+    const c = await caches.open(VERSION);
+    try {
+      const res = await fetch(req, { cache: 'no-cache' });
+      if (res.ok) c.put(req, res.clone());
+      return res;
+    } catch (err) {
+      const hit = await c.match(req, { ignoreSearch: true });
+      if (hit) return hit;
+      throw err;
+    }
+  })());
 });

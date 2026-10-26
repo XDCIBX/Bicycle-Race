@@ -358,11 +358,11 @@
           const pose = transitionPose(prevKind, kind, a.legTime / need);
           s = pose.s; mode = pose.mode;
         } else return;
-        // Скорость на экране — для частоты гребков, шагов и педалирования.
-        if (a.lastS !== undefined && dt > 0) {
-          const v = Math.max(0, (s - a.lastS) / dt);
-          a.visV += (Math.min(v, 40) - a.visV) * Math.min(1, dt * 6);
-        }
+        // Анимация привязана к пройденному на экране расстоянию: сколько продвинулся —
+        // столько гребков, шагов и оборотов педалей. Так она не зависит от частоты кадров.
+        const ds = a.lastS !== undefined ? s - a.lastS : 0;
+        if (ds > 0 && ds < 60) a.dist = (a.dist || 0) + ds;
+        if (dt > 0) a.visV += (Math.max(0, Math.min(40, ds / dt)) - a.visV) * Math.min(1, dt * 6);
         a.lastS = s;
         const q = course.sampleAt(s);
         const lat = a.lane * course.hw * (mode === 'swim' ? 0.7 : 0.6) + (mode === 'push' ? -0.3 : 0);
@@ -370,11 +370,11 @@
         a.x = q.x + q.nx * lat; a.y = q.y + q.ny * lat; a.z = q.z;
         a.heading = q.ang; a.lean = 0; a.sprinting = false;
         a.v = mode === 'bike' ? 14 : 8;
-        const v = racing ? a.visV : 0;
-        if (mode === 'swim') a.phase += v / VIS.swim * 5.5 * dt;
-        else if (mode === 'run' || mode === 'push') a.phase += v / VIS.run * 15 * dt;
+        const d = a.dist || 0;
+        if (mode === 'swim') a.phase = d * (2 * Math.PI / 3.9);          // один цикл гребка ≈ 3.9 ед.
+        else if (mode === 'run' || mode === 'push') a.phase = d * (2 * Math.PI / 2.5); // двойной шаг ≈ 2.5 ед.
         else if (mode === 'idle') a.phaseIdle = (a.phaseIdle || 0) + dt * 5;
-        if (mode === 'bike') { a.pedal = (a.pedal || 0) + v / VIS.bike * 12 * dt; a.odo = (a.odo || 0) + v * dt; }
+        if (mode === 'bike') { a.pedal = d * (2 * Math.PI / 7.3); a.odo = d; }   // оборот шатуна ≈ 7.3 ед. (передача)
         riders.push(a);
       });
       this.riders = riders;
